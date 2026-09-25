@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - {{ wiki_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</head>
+<body>
+    <div class="menu">
+        <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
+
+        {% if session.get('user') %}
+            <a href="/Logout" class="box">로그아웃</a>&nbsp;
+        {% else %}
+            <a href="/Sign_Up" class="box">회원가입</a>&nbsp;
+            <a href="/Revisit" class="box">로그인</a>&nbsp;
+        {% endif %}
+
+        <a href="/RandomPage" class="Random">↻</a>&nbsp;
+        <form action="/search">
+            <input type="text" name="q" placeholder="Search wiki...">
+            <button>검색</button>
+        </form>
+    </div>
+    <div class="container">
+        {% if again %}
+            <h1>로그인</h1>
+            <footer>혹시 회원가입을 안하셨나요? <a href="/Sign_Up">회원가입</a></footer>
+
+            <form action="{{ '/Revisit' if again else '/Sign_Up' }}" method="POST">
+                <input type="text" name="id" placeholder="아이디 입력" required>
+                <input type="password" name="pw" placeholder="비밀번호 입력" required>
+                <input type="password" name="operation_code" placeholder="운영자 코드 (선택)">
+                <button type="submit">전송하기</button>
+            </form>
+        {% else %}
+            <h1>회원가입</h1>
+            <footer>혹시 로그인을 하셔야하는데 잘못 들어오셨나요? <a href="/Revisit">로그인</a></footer>
+
+            <form action="{{ '/Revisit' if again else '/Sign_Up' }}" method="POST">
+                <input type="text" name="id" placeholder="영문·숫자 닉네임" pattern="[A-Za-z0-9]+" title="닉네임은 영문과 숫자만 사용할 수 있습니다." required>
+                <input type="password" name="pw" placeholder="비밀번호 입력" required>
+                <input type="password" name="operation_code" placeholder="운영자 코드 (선택)">
+                <button type="submit">전송하기</button>
+            </form>
+        {% endif %}
+
+        {{ footer_content|safe }}
+    </div>
+</body>
+</html>

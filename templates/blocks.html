@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - {{ wiki_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="menu">
+        <a href="{{ url_for('view', Document=wiki_page) }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
+        <a href="{{ url_for('view', Document=wiki_page) }}" class="box">위키로 돌아가기</a>&nbsp;
+        <a href="{{ url_for('logout') }}" class="box">로그아웃</a>
+    </div>
+    <main class="container">
+        <h1>차단 관리</h1>
+        <p class="admin-note">운영자 전용 기능입니다. ID 또는 IP를 기준으로 접근을 제한할 수 있습니다.</p>
+
+        {% if error %}
+            <div class="block-error">{{ error }}</div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('create_block') }}" class="block-form">
+            <div class="block-form-grid">
+                <label>
+                    차단 대상
+                    <select name="target_type" required>
+                        <option value="id">ID</option>
+                        <option value="ip">IP</option>
+                    </select>
+                </label>
+                <label>
+                    ID 또는 IP
+                    <input type="text" name="target" required maxlength="255" placeholder="예: user123 또는 127.0.0.1">
+                </label>
+                <label>
+                    차단 동작
+                    <select name="action" required>
+                        <option value="all">전체 차단</option>
+                        <option value="view">문서 열람 차단</option>
+                        <option value="edit">편집/업로드/토론 차단</option>
+                        <option value="login">로그인/회원가입 차단</option>
+                    </select>
+                </label>
+                <fieldset>
+                    <legend>종료 날짜 (비워두면 무기한)</legend>
+                    <div class="date-fields">
+                        <input type="number" name="expires_year" min="2000" max="9999" placeholder="연도">
+                        <input type="number" name="expires_month" min="1" max="12" placeholder="월">
+                        <input type="number" name="expires_day" min="1" max="31" placeholder="일">
+                    </div>
+                </fieldset>
+            </div>
+            <label>
+                제재 사유
+                <textarea name="reason" rows="3" required maxlength="1000" placeholder="차단 사유를 입력하세요."></textarea>
+            </label>
+            <button type="submit" class="block-submit">차단 등록</button>
+        </form>
+
+        <h2>차단 기록</h2>
+        {% if blocks %}
+            <div class="block-table-wrap">
+                <table class="block-table">
+                    <thead>
+                        <tr>
+                            <th>상태</th>
+                            <th>대상</th>
+                            <th>동작</th>
+                            <th>종료</th>
+                            <th>사유</th>
+                            <th>등록자 / 등록일</th>
+                            <th>관리</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for block in blocks %}
+                        <tr class="{% if not block['active'] %}block-released{% endif %}">
+                            <td>{{ '진행 중' if block['active'] else '해제됨' }}</td>
+                            <td><strong>{{ block['target_type']|upper }}</strong><br>{{ block['target'] }}</td>
+                            <td>{{ {'all': '전체', 'view': '열람', 'edit': '편집', 'login': '로그인'}[block['action']] }}</td>
+                            <td>{{ block['expires_at'] or '무기한' }}</td>
+                            <td class="block-reason">{{ block['reason'] }}</td>
+                            <td>{{ block['blocked_by'] }}<br>{{ block['created_at'] }}</td>
+                            <td>
+                                {% if block['active'] %}
+                                    <form method="post" action="{{ url_for('release_block', block_id=block['id']) }}">
+                                        <button type="submit" class="block-release">해제</button>
+                                    </form>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p>등록된 차단이 없습니다.</p>
+        {% endif %}
+    </main>
+</body>
+</html>

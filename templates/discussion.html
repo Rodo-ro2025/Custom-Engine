@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - {{ wiki_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</head>
+<body data-page-mode="discussion" data-document-title="{{ title }}" data-main-page="{{ wiki_page }}">
+    <div class="menu">
+        <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
+
+        {% if session.get('user') %}
+            <a href="/Logout" class="box">로그아웃</a>&nbsp;
+        {% else %}
+            <a href="/Sign_Up" class="box">회원가입</a>&nbsp;
+            <a href="/Revisit" class="box">로그인</a>&nbsp;
+        {% endif %}
+
+        <a href="/w/{{ title }}" class="box">읽기</a>&nbsp;
+        <a href="/RandomPage" class="Random">↻</a>&nbsp;
+        <form action="/search">
+            <input type="text" name="q" placeholder="Search wiki...">
+            <button>검색</button>
+        </form>
+    </div>
+
+    <div class="container">
+        <h1>{{ title }} (토론)</h1>
+
+        <h3>{{ '댓글 작성' if is_topic else '새 토론' }}</h3>
+
+        <form method="POST">
+            <input type="hidden" name="parent_id" value="{{ discussions[0][0] if is_topic and discussions else '' }}">
+            <textarea name="content" rows="5" style="width:100%;" required></textarea>
+            <br>
+            <button type="submit">작성</button>
+        </form>
+
+        <hr>
+
+        <h3>열린 토론</h3>
+
+        {% for d in discussions %}
+            <div id="comment-{{ d[0] }}" style="margin-left: {{ d[5] * 40 }}px; border:1px solid #ccc; padding:10px; margin-bottom:10px; position: relative;">
+                <b>{{ d[2] }}</b>
+                <small>{{ d[4] }}</small>
+
+                <div class="discussion-view-toggle{% if is_admin %} discussion-view-toggle-admin{% endif %}">
+                    <button type="button" data-view="raw-{{ d[0] }}">원문</button>
+                    <button type="button" data-view="rendered-{{ d[0] }}">변형</button>
+                </div>
+
+                {% if not is_topic and d[1] is none and d[6] %}
+                    <a href="{{ url_for('discussion', Document=title, topic_code=d[6]) }}">토론 주소 #{{ d[6] }}</a>
+                {% endif %}
+
+                {% if is_admin %}
+                    <form action="{{ url_for('delete_comment', Document=title, topic_code=topic_code or d[6], comment_id=d[0]) }}" method="POST" style="display:inline; float: right;" onsubmit="return confirm('정말로 이 댓글을 삭제하시겠습니까? 밑에 달린 답글도 삭제될 수 있습니다.');">
+                        <button type="submit" style="color: white; background-color: #d9534f; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8rem;">
+                            댓글 전체 삭제 💥
+                        </button>
+                    </form>
+                {% endif %}
+
+                <br><br>
+
+                <pre id="raw-{{ d[0] }}" class="discussion-content discussion-raw" hidden>{{ d[3] }}</pre>
+                <div id="rendered-{{ d[0] }}" class="discussion-content discussion-rendered">{{ d[7]|safe }}</div>
+
+                <hr>
+
+                {% if is_topic %}
+                <form method="POST">
+                    <input type="hidden" name="parent_id" value="{{ d[0] }}">
+                    <textarea name="content" rows="3" style="width:100%;" required></textarea>
+                    <br>
+                    <button type="submit">답글</button>
+                </form>
+                {% endif %}
+            </div>
+        {% else %}
+            <p>아직 토론이 없습니다.</p>
+        {% endfor %}
+
+        {{ footer_content|safe }}
+    </div>
+    <script>
+        document.querySelectorAll('.discussion-view-toggle').forEach(function(toggle) {
+            toggle.querySelectorAll('button').forEach(function(button) {
+                button.addEventListener('click', function() {
+                    var targetId = button.dataset.view;
+                    var container = toggle.parentElement;
+                    container.querySelectorAll('.discussion-content').forEach(function(content) {
+                        content.hidden = content.id !== targetId;
+                    });
+                });
+            });
+        });
+    </script>
+</body>
+</html>

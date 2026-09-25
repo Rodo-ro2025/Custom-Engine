@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>접근 제한 - {{ config.WIKI_NAME if config is defined else 'WIKI' }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="container block-page">
+        <h1>접근이 제한되었습니다.</h1>
+        <p>운영자에 의해 현재 요청이 제한되었습니다.</p>
+        <dl class="block-detail">
+            <dt>제한 종류</dt>
+            <dd>{{ {'all': '전체 차단', 'view': '문서 열람 차단', 'edit': '편집 차단', 'login': '로그인 차단'}[action] }}</dd>
+            <dt>종료</dt>
+            <dd>{{ expires_at }}</dd>
+            <dt>사유</dt>
+            <dd>{{ reason }}</dd>
+            <dt>처리 운영자</dt>
+            <dd>{{ blocked_by }}</dd>
+        </dl>
+        <a href="/" class="box">메인으로 돌아가기</a>
+    </main>
+</body>
+</html>

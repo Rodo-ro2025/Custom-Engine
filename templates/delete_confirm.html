@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - {{ wiki_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</head>
+<body>
+    <div class="menu">
+        <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
+
+        {% if session.get('user') %}
+            <a href="/w/사용자:{{ session.get('user') }}" class="box">사용자 문서</a>&nbsp;
+            <a href="/Logout" class="box">로그아웃</a>&nbsp;
+        {% else %}
+            <a href="/Sign_Up" class="box">회원가입</a>&nbsp;
+            <a href="/Revisit" class="box">로그인</a>&nbsp;
+        {% endif %}
+
+        <a href="/w/{{ document_title }}" class="box">읽기</a>&nbsp;
+        <a href="/RandomPage" class="Random">↻</a>&nbsp;
+
+        <form action="/search">
+            <input type="text" name="q" placeholder="Search wiki...">
+            <button>검색</button>
+        </form>
+    </div>
+
+    <div class="container">
+        <h2>문서 삭제 확인</h2>
+        
+        <div class="reduce">
+            <b>⚠️ 문서 삭제 주의 경보</b><br>
+            정말로 <strong>"{{ document_title }}"</strong> 문서를 완전히 삭제하시겠습니까?<br>
+            <b class="wiki-link erroneous">삭제된 문서는 되돌릴 수 없으며, 모든 편집 역사가 영구히 소멸합니다.</b>
+        </div>
+        
+        <form method="POST">
+            <button type="submit" class="wiki-btn-delete">삭제 집행</button>
+            <a href="/w/{{ document_title }}" class="Shortcut">취소하고 돌아가기</a>
+        </form>
+    </div>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - {{ wiki_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</head>
+<body data-page-mode="{{ mode }}" data-document-title="{{ title }}" data-main-page="{{ wiki_page }}">
+    <div class="menu">
+        <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
+
+        {% if session.get('user') %}
+            <a href="/w/사용자:{{ session.get('user') }}" class="box">사용자 문서</a>&nbsp;
+            {% if is_operator %}
+                <a href="{{ url_for('manage_blocks') }}" class="box">차단 관리</a>&nbsp;
+            {% endif %}
+            <a href="/Logout" class="box">로그아웃</a>&nbsp;
+        {% else %}
+            <a href="/Sign_Up" class="box">회원가입</a>&nbsp;
+            <a href="/Revisit" class="box">로그인</a>&nbsp;
+        {% endif %}
+
+        <a href="#" id="protect-btn" data-doc="{{ title }}" style="display: none;" class="box">보호</a>&nbsp;
+
+        <a href="/upload" class="box">파일 업로드</a>&nbsp;
+        <a href="/w/{{ title }}" class="box">읽기</a>&nbsp;
+        <a href="/edit/{{ title }}" class="box">편집</a>&nbsp;
+        <a href="/delete/{{ title }}" class="box">삭제</a>&nbsp;
+        <a href="/history/{{ title }}" class="box">역사</a>&nbsp;
+        <a href="/discussion/{{ title }}" class="box">토론</a>&nbsp;
+        <a href="/backlink/{{ title }}" class="box">역링크</a>&nbsp;
+        <a href="/RandomPage" class="Random">↻</a>&nbsp;
+
+        <form action="/search">
+            <input type="text" name="q" placeholder="Search wiki...">
+            <button>검색</button>
+        </form>
+    </div>
+    <div class="container">
+        {% if mode == "w" %}
+            <h1>{{ title }} {% if version %}(r{{ version }} 버전){% endif %}</h1>
+            {% if come %}
+                <div style="margin: 12px 0 16px; padding: 12px 14px; border: 1px solid #d0ebff; border-radius: 6px; background: #f1f8ff; color: #1864ab;">
+                    <strong>↩ 리다이렉트 안내</strong><br>
+                    이전 문서 <b>{{ come }}</b>에서 이 문서로 이동했습니다.<br>
+                    <hr>
+                    <a href="/edit/{{ come }}" style="color: #1864ab;"><strong>“{{ come }}” 문서 수정하러 가기</strong></a>
+                </div>
+            {% endif %}
+            {% if letter %}
+                <div class="Stub">이 문서는 토막글 문서입니다. 여러분의 기여로 문서를 가득 채워주시길 바랍니다.</div>
+            {% endif %}
+            <div class="wiki-body">
+                {{ detail|safe }}
+            </div>
+        {% elif mode == "raw" %}
+            <h1>{{ title }} (RAW r{{ version }})</h1>
+            <textarea id="raw-document-content" class="wiki-raw-source" readonly>{{ raw_content }}</textarea>
+            <button type="button" class="wiki-version-copy" data-copy-target="raw-document-content">전체 복사</button>
+        {% elif mode == "edit" %}
+            <h1>{{ title }} (편집)</h1>
+            <form method='post' id="document-edit-form">
+                <textarea name='content' rows='20' style="width: 100%; box-sizing: border-box;">{{ detail }}</textarea><br>
+                <button type='submit' style="margin-top: 10px; padding: 10px 20px;">저장</button>
+            </form>
+        {% elif mode == "history" %}
+            <h1>{{ title }} (역사)</h1>
+            {% if history_data %}
+                <table class="wiki-history-table" border="2">
+                    <thead>
+                        <tr>
+                            <th>버전</th>
+                            <th>작성자</th>
+                            <th>수정 시간</th>
+                            <th>글자 수</th>
+                            <th>원문</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in history_data %}
+                        <tr>
+                            <td>
+                                <a href="{{ url_for('view', Document=title, rev=row[0]) }}">r{{ row[0] }}</a>
+                                <a href="{{ url_for('view', Document=title, raw=row[0]) }}">RAW</a>
+                                {% if row[0] > 1 %}
+                                    <a href="{{ url_for('compare', Document=title) }}?from={{ row[0] - 1 }}&amp;to={{ row[0] }}">비교</a>
+                                {% endif %}
+                            </td>
+                            <td>{{ row[1] }}</td>
+                            <td>{{ row[2] }}</td>
+                            <td>{{ row[3] }}</td>
+                            <td>
+                                <button type="button" class="wiki-version-copy" data-copy-target="history-revision-{{ row[0] }}">전체 복사</button>
+                                <textarea id="history-revision-{{ row[0] }}" class="wiki-history-source" readonly>{{ row[4] }}</textarea>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p>역사가 존재하지 않습니다.</p>
+            {% endif %}
+        {% elif mode == "compare" %}
+            <h1>{{ title }} (버전 비교)</h1>
+            <p>이전 버전 r{{ from_version }}와 현재 버전 r{{ to_version }}를 비교합니다.</p>
+            <div class="wiki-diff-legend">
+                <span class="wiki-diff-removed">삭제된 내용</span>
+                <span class="wiki-diff-added">추가된 내용</span>
+            </div>
+            <div class="wiki-diff-table">
+                {{ comparison_html|safe }}
+            </div>
+            <a href="{{ url_for('history', Document=title) }}">역사로 돌아가기</a>
+        {% elif mode == "backlink" %}
+            <h1>{{ title }} (역링크)</h1>
+            {% if backlinks %}
+                {% for namespace, items in backlinks.items() %}
+                    <section style="margin: 20px 0 28px;">
+                        <h2 style="border-bottom: 2px solid #d0d7de; padding-bottom: 8px;">{{ namespace }}</h2>
+                        <ul style="line-height: 1.8;">
+                        {% for item in items %}
+                            <li>
+                                <a href="{{ url_for('view', Document=item.title) }}">{{ item.title }}</a>
+                                <span style="color: #666;">({{ item.type }})</span>
+                            </li>
+                        {% endfor %}
+                        </ul>
+                    </section>
+                {% endfor %}
+            {% else %}
+                <p>이 문서를 가리키는 역링크가 없습니다.</p>
+            {% endif %}
+        {% elif mode == "admin" %}
+            <h1>{{ title }}</h1>
+        {% endif %}
+        {{ footer_content|safe }}
+    </div>
+</body>
+</html>
