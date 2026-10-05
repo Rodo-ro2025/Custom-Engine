@@ -91,7 +91,6 @@ def normalize_redirect_target(target):
 
     return target or None
 
-
 def get_redirect_target(content):
     if not content:
         return None
@@ -105,7 +104,19 @@ def get_redirect_target(content):
             parts = stripped.split(None, 1)
             if len(parts) < 2:
                 return None
-            return normalize_redirect_target(parts[1])
+
+            target = parts[1]
+            anchor = ""
+
+            if '#' in target and not target.startswith('#'):
+                target_parts = target.split('#', 1)
+                target = target_parts[0]
+                anchor = target_parts[1]
+
+            normalized_target = normalize_redirect_target(target.strip())
+            if not normalized_target:
+                return None
+            return normalized_target + (f"?anchor={anchor.strip()}" if anchor else "")
 
         brace_match = re.match(r'^\s*\{\{redirect(?:\s*\|\s*|\s*:)?\s*(.+?)\s*\}\}\s*$', stripped)
         if brace_match:
@@ -116,7 +127,6 @@ def get_redirect_target(content):
             return normalize_redirect_target(bracket_match.group(1))
 
     return None
-
 
 def Document_Check(Document):
     conn = sqlite3.connect(config.DB_PATH)
@@ -174,20 +184,51 @@ def build_auto_create_document_content(kind, **kwargs):
         return template
 
 
-def search_documents(query):
+def get_visible_document_text(title, content):
+    rendered_content = rendering.rendering(
+        content or "",
+        function=config.RENDERING_LIST,
+        db_check_func=Document_Check,
+        current_title=title
+    )
+    rendered_content = re.sub(
+        r"<(script|style)\b[^>]*>.*?</\1\s*>",
+        " ",
+        rendered_content,
+        flags=re.IGNORECASE | re.DOTALL
+    )
+    return html.unescape(re.sub(r"<[^>]+>", " ", rendered_content))
+
+
+def search_documents(query, search_mode="all"):
     conn = sqlite3.connect(config.DB_PATH)
-    cursor = conn.cursor()
+    try:
+        rows = conn.execute(
+            "SELECT title, content FROM documents ORDER BY id DESC"
+        ).fetchall()
+    finally:
+        conn.close()
 
-    cursor.execute("""
-        SELECT title, content
-        FROM documents
-        WHERE title LIKE ? OR content LIKE ?
-        ORDER BY id DESC
-    """, (f"%{query}%", f"%{query}%"))
+    query_pattern = re.compile(re.escape(query), re.IGNORECASE)
+    results = []
+    for title, raw_content in rows:
+        raw_content = raw_content or ""
+        title_matches = query_pattern.search(title) is not None
 
-    results = cursor.fetchall()
-    conn.close()
+        if search_mode == "title":
+            if title_matches:
+                results.append((title, get_visible_document_text(title, raw_content)))
+            continue
 
+        if search_mode == "raw":
+            if query_pattern.search(raw_content):
+                results.append((title, raw_content))
+            continue
+
+        visible_content = get_visible_document_text(title, raw_content)
+        content_matches = query_pattern.search(visible_content) is not None
+        if content_matches or (search_mode == "all" and title_matches):
+            results.append((title, visible_content))
     return results
 
 
@@ -232,7 +273,9 @@ def get_backlinks(Document):
             categories.add("file")
         if backlink_patterns["include"].search(content):
             categories.add("include")
-        if get_redirect_target(content) == Document:
+        redirect_target = get_redirect_target(content)
+        redirect_document = redirect_target.split("?anchor=", 1)[0] if redirect_target else None
+        if redirect_document == Document:
             categories.add("redirect")
 
         for category in sorted(categories):
@@ -563,6 +606,11 @@ def view(Document):
         redirect_args = dict(flask.request.args.to_dict(flat=True))
         redirect_args.pop("form", None)
         redirect_args["from"] = Document
+
+        if "?anchor=" in redirect_target:
+            redirect_target, anchor_val = redirect_target.split("?anchor=", 1)
+            redirect_args["_anchor"] = anchor_val
+
         conn.close()
         return flask.redirect(flask.url_for("view", Document=redirect_target, **redirect_args))
 
@@ -1265,13 +1313,25 @@ def api_document_exists(Document):
 @app.route("/search")
 def search():
     q = flask.request.args.get("q", "").strip()
+    search_mode = flask.request.args.get("mode", "all")
+    if search_mode not in {"all", "title", "content", "raw"}:
+        search_mode = "all"
 
     if not q:
         return flask.redirect(flask.url_for("index"))
 
-    results = search_documents(q)
+    results = []
+    for title, content in search_documents(q, search_mode):
+        content = content or ""
+        match = re.search(re.escape(q), content, re.IGNORECASE)
+        start = match.start() if match else 0
+        end = start + 200
+        snippet = ("..." if start else "") + content[start:end]
+        if end < len(content):
+            snippet += "..."
+        results.append((title, snippet))
 
-    return flask.render_template("search.html", query=q, results=results, wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
+    return flask.render_template("search.html", query=q, results=results, search_mode=search_mode, wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
 
 @app.route("/RandomPage")
 def random_page():
@@ -1407,13 +1467,16 @@ def logout():
 @login_required
 def upload_image():
     if flask.request.method == "GET":
-        upload_html = """
+        accepted_extensions = ",".join(
+            f".{extension}" for extension in sorted(config.ALLOWED_IMAGE_EXTENSIONS)
+        )
+        upload_html = f"""
         <div class="wiki-upload-container" style="padding: 20px; border: 1px solid #ccc; border-radius: 6px;">
             <h2>📤 위키 이미지 업로드</h2>
             <p>위키 문서에 사용할 이미지를 서버에 바치세요. 업로드 시 자동으로 파일 문서가 생성됩니다.</p>
             <hr>
             <form action="/upload" method="POST" enctype="multipart/form-data" style="margin-top: 20px;">
-                <input type="file" name="file" required><br><br>
+                <input type="file" name="file" accept="{accepted_extensions}" required><br><br>
                 <button type="submit" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">📦 서버로 전송</button>
             </form>
         </div>
@@ -1429,7 +1492,14 @@ def upload_image():
         return flask.abort(400)
         
     if file:
-        filename = file.filename
+        filename = secure_filename(file.filename)
+        extension = os.path.splitext(filename)[1].lstrip(".").casefold()
+        allowed_extensions = {
+            str(item).lstrip(".").casefold()
+            for item in config.ALLOWED_IMAGE_EXTENSIONS
+        }
+        if not filename or extension not in allowed_extensions:
+            return flask.abort(400)
 
         image_folder = os.path.join(config.BASE_DIR, "static", str(config.IMAGE))
 

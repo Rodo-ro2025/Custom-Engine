@@ -5,7 +5,8 @@ import html
 import re
 import markdown
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
+import sqlite3
 
 # --- Personal Module ---
 import config
@@ -13,12 +14,49 @@ from table import table
 
 def rendering(text, function=[], db_check_func=None, current_title=None, include_params=None, include_depth=0, include_stack=None, db_read_func=None):
     rendered = text
+    rendered = re.sub(r'<(?:script|style)[^>]*>.*?</(?:script|style)>', r'', rendered, flags=re.DOTALL | re.IGNORECASE)
     Secured = []
     folding_blocks = []
     effective_params = include_params or {}
     active_stack = list(include_stack or [])
 
     def link(t):
+        def internal_link_url(doc_name):
+            if '#' in doc_name and db_check_func and db_check_func(doc_name):
+                return f'/w/{quote(doc_name, safe="/")}'
+            if '#' in doc_name and not doc_name.startswith('#'):
+                path, anchor = doc_name.split('#', 1)
+                return f'/w/{quote(path, safe="/")}#{quote(anchor, safe="")}'
+            return f'/w/{quote(doc_name, safe="/")}'
+
+        def relative_wiki_link(target):
+            if not target.startswith('/') or target.startswith('//') or '\\' in target:
+                return None
+
+            try:
+                parsed = urlsplit(target)
+            except ValueError:
+                return None
+
+            if parsed.scheme or parsed.netloc or not parsed.path.startswith('/'):
+                return None
+
+            path = quote(parsed.path, safe="/%:@!$&'()*+,;=-._~")
+            query = quote(parsed.query, safe="=&?/:@!$'()*+,;%-._~")
+            fragment = quote(parsed.fragment, safe="/?:@!$&'()*+,;=%-._~")
+            url = urlunsplit(('', '', path, query, fragment))
+            link_title = target
+            lookup_title = unquote(parsed.path[3:]).strip() if parsed.path.startswith('/w/') else None
+
+            revision_query = re.fullmatch(r'rev=(\d+)', parsed.query)
+            if lookup_title is not None and revision_query and not parsed.fragment:
+                revision = revision_query.group(1).lstrip('0')
+                if revision:
+                    link_title = lookup_title or target
+                    url = f'/w/{quote(lookup_title, safe="/")}?rev={revision}'
+
+            return link_title, url, lookup_title
+
         t = re.sub(
             r'@([^@\s]+)@',
             lambda m: str(effective_params.get(m.group(1), '')),
@@ -59,17 +97,17 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         t = re.sub(r'\[\[파일:(.*?)\]\]', file_link_replacer, t)
 
         def external_link_replacer(m):
-            url = m.group(1).strip()
+            url = html.unescape(m.group(1).strip())
             raw_title = m.group(2)
             title = raw_title.strip() if raw_title else url
 
-            plain_title = html.escape(re.sub(r"<[^>]+>", "", title), quote=True)
+            plain_title = html.escape(re.sub(r"<[^>]+>", "", url), quote=True)
             safe_url = html.escape(url, quote=True)
             safe_title = html.escape(re.sub(r"<[^>]+>", "", title), quote=False)
 
             return f'<a class="wiki-link external" href="{safe_url}" target="_blank" title="{plain_title}">🔗{safe_title}</a>'
 
-        t = re.sub(r'\[\[(https?://[^\s\|\]]+)(?:\|((?:(?!\x5d\x5d).)+))?\]\]', external_link_replacer, t)
+        t = re.sub(r'\[\[(https?://[^\|\]]+)(?:\|((?:(?!\]\]).)+))?\]\]', external_link_replacer, t)
 
         def internal_pipe_link_replacer(m):
             doc_name = m.group(1).strip()
@@ -81,20 +119,30 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             if not display_name:
                 display_name = doc_name
 
-            plain_title = html.escape(re.sub(r"<[^>]+>", "", display_name), quote=True)
-            if doc_name.startswith('#'):
-                safe_anchor = html.escape(doc_name, quote=True)
+            relative_link = relative_wiki_link(doc_name)
+            if relative_link:
+                link_title, relative_url, lookup_title = relative_link
+                plain_title = html.escape(link_title, quote=True)
+                safe_doc_url = html.escape(relative_url, quote=True)
+                safe_display_name = html.escape(re.sub(r"<[^>]+>", "", display_name), quote=False)
+                if lookup_title is not None and db_check_func and not db_check_func(lookup_title):
+                    return f'<a class="wiki-link erroneous" href="{safe_doc_url}" title="{plain_title}">{safe_display_name}</a>'
+                return f'<a class="wiki-link" href="{safe_doc_url}" title="{plain_title}">{safe_display_name}</a>'
+
+            plain_title = html.escape(re.sub(r"<[^>]+>", "", doc_name), quote=True)
+            if doc_name.startswith('#') and len(doc_name) > 1 and not (db_check_func and db_check_func(doc_name)):
+                safe_anchor = html.escape('#' + quote(doc_name[1:], safe=''), quote=True)
                 safe_display_name = html.escape(re.sub(r"<[^>]+>", "", display_name), quote=False)
                 return f'<a class="wiki-link" href="{safe_anchor}" title="{plain_title}">{safe_display_name}</a>'
 
-            safe_doc_name = html.escape(doc_name, quote=True)
+            safe_doc_url = html.escape(internal_link_url(doc_name), quote=True)
             safe_display_name = display_name
 
-            pure_doc_name = doc_name.split('#')[0].strip()
+            lookup_title = doc_name if doc_name == '#' else doc_name.split('#', 1)[0].strip()
 
-            if pure_doc_name and db_check_func and not db_check_func(pure_doc_name):
-                return f'<a class="wiki-link erroneous" href="/w/{safe_doc_name}" title="{plain_title}">{safe_display_name}</a>'
-            return f'<a class="wiki-link" href="/w/{safe_doc_name}" title="{plain_title}">{safe_display_name}</a>'
+            if lookup_title and db_check_func and not db_check_func(lookup_title):
+                return f'<a class="wiki-link erroneous" href="{safe_doc_url}" title="{plain_title}">{safe_display_name}</a>'
+            return f'<a class="wiki-link" href="{safe_doc_url}" title="{plain_title}">{safe_display_name}</a>'
 
         t = re.sub(r'\[\[([^\|\]]*)\|([^\]]*)\]\]', internal_pipe_link_replacer, t)
 
@@ -143,18 +191,28 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             if not doc_name:
                 return m.group(0)
 
+            relative_link = relative_wiki_link(doc_name)
+            if relative_link:
+                link_title, relative_url, lookup_title = relative_link
+                plain_title = html.escape(link_title, quote=True)
+                safe_url = html.escape(relative_url, quote=True)
+                safe_text = html.escape(link_title, quote=False)
+                if lookup_title is not None and db_check_func and not db_check_func(lookup_title):
+                    return f'<a class="wiki-link erroneous" href="{safe_url}" title="{plain_title}">{safe_text}</a>'
+                return f'<a class="wiki-link" href="{safe_url}" title="{plain_title}">{safe_text}</a>'
+
             plain_title = html.escape(re.sub(r"<[^>]+>", "", doc_name), quote=True)
-            if doc_name.startswith('#'):
-                safe_anchor = html.escape(doc_name, quote=True)
+            if doc_name.startswith('#') and len(doc_name) > 1 and not (db_check_func and db_check_func(doc_name)):
+                safe_anchor = html.escape('#' + quote(doc_name[1:], safe=''), quote=True)
                 safe_text = html.escape(re.sub(r"<[^>]+>", "", doc_name), quote=False)
                 return f'<a class="wiki-link" href="{safe_anchor}" title="{plain_title}">{safe_text}</a>'
 
-            safe_doc_name = html.escape(doc_name, quote=True)
+            safe_doc_url = html.escape(internal_link_url(doc_name), quote=True)
             safe_text = html.escape(re.sub(r"<[^>]+>", "", doc_name), quote=False)
-            pure_doc_name = doc_name.split('#')[0].strip()
-            if pure_doc_name and db_check_func and not db_check_func(pure_doc_name):
-                return f'<a class="wiki-link erroneous" href="/w/{safe_doc_name}" title="{plain_title}">{safe_text}</a>'
-            return f'<a class="wiki-link" href="/w/{safe_doc_name}" title="{plain_title}">{safe_text}</a>'
+            lookup_title = doc_name if doc_name == '#' else doc_name.split('#', 1)[0].strip()
+            if lookup_title and db_check_func and not db_check_func(lookup_title):
+                return f'<a class="wiki-link erroneous" href="{safe_doc_url}" title="{plain_title}">{safe_text}</a>'
+            return f'<a class="wiki-link" href="{safe_doc_url}" title="{plain_title}">{safe_text}</a>'
 
         t = re.sub(r'\[\[([^\]|]+)\]\]', plain_link_replacer, t)
 
@@ -243,8 +301,6 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             namespace = (m.group(1) or '').strip()
 
             try:
-                import sqlite3
-
                 conn = sqlite3.connect(config.DB_PATH)
                 cursor = conn.cursor()
 
@@ -310,7 +366,6 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 if db_read_func is not None:
                     included_text = db_read_func(doc_name)
                 else:
-                    import sqlite3
                     conn = sqlite3.connect(config.DB_PATH)
                     cursor = conn.cursor()
                     cursor.execute("SELECT content FROM documents WHERE title = ?", (doc_name,))
@@ -374,8 +429,18 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             anchor_id = html.escape(m.group(1).strip(), quote=True)
             return f'<a id="{anchor_id}"></a>'
 
+        def ruby_replacer(m):
+            text = html.escape(m.group(1).strip())
+            ruby_text = html.escape(m.group(2).strip())
+            raw_color = m.group(3).strip() if m.group(3) else None
+
+            if raw_color:
+                color = html.escape(raw_color)
+                return f'<ruby>{text}<rt style="color: {color};">{ruby_text}</rt></ruby>'
+            return f'<ruby>{text}<rt>{ruby_text}</rt></ruby>'
+
         t = re.sub(
-            r'(?m)(?:^|\r?\n)[ \t]*\[include\((.*?)\)\][ \t]*(\r?\n|$)',
+            r'(?ms)(?:^|\r?\n)[ \t]*\[include\((.*?)\)\][ \t]*(\r?\n|$)',
             lambda m: replace_include(m) + (m.group(2) if m.group(2) else ''),
             t
         )
@@ -384,6 +449,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
         t = re.sub(r'\[now\]', datetime.now().strftime("%Y-%m-%d %H:%M:%S"), t)
         t = re.sub(r'\[anchor\((.*?)\)\]', anchor_replacer, t)
+        t = re.sub(r'\[ruby\(\s*(?:text=\s*)?(.*?)\s*,\s*ruby=(.*?)(?:\s*,\s*color=(.*?))?\s*\)\]', ruby_replacer, t, flags=re.DOTALL)
         t = replace_toc(t)
 
         return t
@@ -423,6 +489,28 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 token = token.strip()
                 if not token:
                     return ''
+
+                if len(token) >= 2 and token[0] == token[-1] and token[0] in {'"', "'"}:
+                    return token[1:-1]
+
+                rendering_match = re.fullmatch(r'(.+?)\.rendering\((.*)\)', token, re.DOTALL | re.IGNORECASE)
+                if rendering_match:
+                    arguments = rendering_match.group(2).split(',', 1)
+                    if len(arguments) == 2:
+                        source = resolve_token(rendering_match.group(1))
+
+                        def resolve_argument(argument):
+                            arg = argument.strip()
+                            if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in {'"', "'"}:
+                                return arg[1:-1]
+                            return resolve_token(arg)
+
+                        original = resolve_argument(arguments[0])
+                        replacement = resolve_argument(arguments[1])
+                        source = '' if source is None else str(source)
+                        original = '' if original is None else str(original)
+                        replacement = '' if replacement is None else str(replacement)
+                        return source.replace(original, replacement)
 
                 token = re.sub(r'@([^@\s]+)@', lambda m: str(effective_params.get(m.group(1), '')), token)
                 if token in effective_params:
@@ -501,11 +589,18 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                     if operator == '<':
                         return left_value < right_value
 
-            if '=' in expr and ' ' not in expr:
-                left, right = expr.split('=', 1)
-                left_value = resolve_token(left.strip())
-                right_value = resolve_token(right.strip())
-                return left_value == right_value
+            if expr.count('=') == 1:
+                name, value_expr = expr.split('=', 1)
+                name = name.strip()
+                if name.startswith('@') and name.endswith('@'):
+                    name = name[1:-1]
+                if re.fullmatch(r'[^@\s]+', name):
+                    value = resolve_token(value_expr.strip())
+                    effective_params[name] = '' if value is None else str(value)
+                    return True
+
+            if re.fullmatch(r'.+\.rendering\(.*\)', expr, re.DOTALL | re.IGNORECASE):
+                return bool(resolve_token(expr))
 
             if expr in effective_params:
                 return bool(effective_params[expr])
@@ -551,11 +646,13 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             return ''.join(result)
 
         def parse_if_block(text, start_idx):
-            opening_match = re.match(r'{{#if\s*\(?(.+?)\)?}}', text[start_idx:], re.DOTALL)
+            opening_match = re.match(r'{{#if\s*(.*?)}}', text[start_idx:], re.DOTALL)
             if not opening_match:
                 return '', start_idx + 1
 
             condition_expr = opening_match.group(1).strip()
+            if condition_expr.startswith('(') and condition_expr.endswith(')'):
+                condition_expr = condition_expr[1:-1].strip()
             content_start = start_idx + opening_match.end()
             depth = 1
             search_pos = content_start
@@ -770,10 +867,10 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         return heading_pattern.sub(index, t)
 
     def blockquote(t):
-        pattern = r'(?:^>\s*.*\n?)+'
+        pattern = r'(?:^>[ \t]*.*\n?)+'
 
         def _wrap(m):
-            inner = re.sub(r'^>\s*', '', m.group(0), flags=re.MULTILINE)
+            inner = re.sub(r'^>[ \t]*', '', m.group(0), flags=re.MULTILINE)
             lines = inner.splitlines()
             processed = []
 
@@ -794,6 +891,12 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             'label', 'mark', 'q', 'rb', 'rp', 'rt', 'rtc', 'ruby', 's', 'samp',
             'select', 'slot', 'small', 'span', 'strong', 'sub', 'sup', 'svg', 'textarea',
             'time', 'tt', 'u', 'var', 'wbr', 'ins'
+        }
+        block_tag_names = {
+            'address', 'article', 'aside', 'blockquote', 'dd', 'div', 'dl', 'dt',
+            'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3',
+            'h4', 'h5', 'h6', 'header', 'hr', 'li', 'main', 'nav', 'ol', 'p',
+            'pre', 'section', 'table', 'ul'
         }
 
         def tag_name_near_newline(text, index, direction):
@@ -824,7 +927,9 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             next_tag = tag_name_near_newline(t, i, 'after')
             inline_context = (prev_tag in inline_tag_names) or (next_tag in inline_tag_names)
 
-            if (prev_char == '>' or next_char == '<') and not inline_context:
+            if prev_tag in block_tag_names or next_tag in block_tag_names:
+                result.append('')
+            elif (prev_char == '>' or next_char == '<') and not inline_context:
                 result.append('')
             elif prev_char == '\\' and next_char == '\\':
                 result.append('<br>')
@@ -913,18 +1018,10 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 footnote_number = len(footnotes) + 1
                 footnote_content = match.group(1).strip()
                 footnotes.append(footnote_content)
-                tooltip_content = html.escape(footnote_content, quote=True)
-                return (
-                    f'<sup class="wiki-footnote-reference">'
-                    f'<a href="#wiki-footnote-{footnote_number}" '
-                    f'id="wiki-footnote-reference-{footnote_number}">'
-                    f'[{footnote_number}]</a>'
-                    f'<span class="wiki-footnote-tooltip" role="tooltip">'
-                    f'{tooltip_content}</span></sup>'
-                )
+                return f'\x00WIKI_FOOTNOTE_REFERENCE_{footnote_number}\x00'
 
             rendered = re.sub(
-                r'\[\^([^\]\r\n]+)\]',
+                r'\[\^((?:\[\[[^\]\r\n]*\]\]|\[[^\]\r\n]*\]|[^\]\r\n])+)\]',
                 replace_footnote,
                 rendered
             )
@@ -934,17 +1031,17 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             rendered = re.sub(r'\\(.*?)\\', lambda m: ''.join(f'&#{ord(c)};' for c in m.group(1)), rendered)
             rendered = re.sub(r'^//\s*(.*?)$', '', rendered, flags=re.MULTILINE)
 
-            rendered = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', rendered)
-            rendered = re.sub(r'\*(.*?)\*', r'<em>\1</em>', rendered)
-            rendered = re.sub(r'__(.*?)__', r'<ins>\1</ins>', rendered)
-            rendered = re.sub(r'\^\^(.*?)\^\^', r'<sup>\1</sup>', rendered)
-            rendered = re.sub(r',,(.*?),,', r'<sub>\1</sub>', rendered)
+            rendered = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', rendered)
+            rendered = re.sub(r'\*(.+?)\*', r'<em>\1</em>', rendered)
+            rendered = re.sub(r'__(.+?)__', r'<ins>\1</ins>', rendered)
+            rendered = re.sub(r'\^\^(.+?)\^\^', r'<sup>\1</sup>', rendered)
+            rendered = re.sub(r',,(.+?),,', r'<sub>\1</sub>', rendered)
             rendered = re.sub(r'^\s*-{4,10}\s*$', r'<hr>', rendered, flags=re.MULTILINE)
 
             if config.STRIKETHROUGH:
-                rendered = re.sub(r'~~(.*?)~~', r'<del>\1</del>', rendered)
+                rendered = re.sub(r'~~(.+?)~~', r'<del>\1</del>', rendered)
             else:
-                rendered = re.sub(r'~~(.*?)~~', '', rendered)
+                rendered = re.sub(r'~~(.+?)~~', '', rendered)
 
             rendered = toc(rendered)
             rendered = blockquote(rendered)
@@ -967,10 +1064,43 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             rendered = re.sub(r'\[br\]', r'<br>', rendered, flags=re.MULTILINE)
             rendered = line_breaks(rendered)
 
+            for number, content in enumerate(footnotes, start=1):
+                tooltip_content = rendering(
+                    html.unescape(content),
+                    function=function,
+                    db_check_func=db_check_func,
+                    current_title=current_title,
+                    include_params=effective_params,
+                    include_depth=include_depth,
+                    include_stack=active_stack,
+                    db_read_func=db_read_func
+                ).replace('\n', '<br>')
+                reference_html = (
+                    f'<sup class="wiki-footnote-reference">'
+                    f'<a href="#wiki-footnote-{number}" '
+                    f'id="wiki-footnote-reference-{number}">'
+                    f'[{number}]</a>'
+                    f'<span class="wiki-footnote-tooltip" role="tooltip">'
+                    f'{tooltip_content}</span></sup>'
+                )
+                rendered = rendered.replace(
+                    f'\x00WIKI_FOOTNOTE_REFERENCE_{number}\x00',
+                    reference_html
+                )
+
             if footnotes:
                 footnote_items = []
                 for number, content in enumerate(footnotes, start=1):
-                    safe_content = html.escape(content).replace('\n', '<br>')
+                    safe_content = rendering(
+                        html.unescape(content),
+                        function=function,
+                        db_check_func=db_check_func,
+                        current_title=current_title,
+                        include_params=effective_params,
+                        include_depth=include_depth,
+                        include_stack=active_stack,
+                        db_read_func=db_read_func
+                    ).replace('\n', '<br>')
                     footnote_items.append(
                         f'<li id="wiki-footnote-{number}">'
                         f'{safe_content} '

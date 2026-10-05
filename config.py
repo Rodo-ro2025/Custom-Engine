@@ -16,9 +16,10 @@ PORT = 5000
 
 IMAGE = "image"
 SAFE_HTML = False
+ALLOWED_IMAGE_EXTENSIONS = {"avif", "bmp", "gif", "jfif", "jpeg", "jpg", "png", "webp"}
 
 # --- Free editing ---
-WIKI_NAME = "우리위키"
+WIKI_NAME = "RMLWIKI"
 MAIN_PAGE = f"{WIKI_NAME}:대문"
 LOGO_COLOR = "white"
 
@@ -30,7 +31,6 @@ STUB_LENGTH = 150
 RENDERING_LIST = ["ourwiki"]
 NAMESPACE_LIST = ["분류", "틀", "템플릿", "파일", WIKI_NAME, "사용자"]
 
-
 FOLDING_STANDARD_TEXT = "펼치기 · 접기"
 FOOTER_CONTENT = f'''
     <footer>
@@ -40,7 +40,7 @@ FOOTER_CONTENT = f'''
         <br>
         <br>{WIKI_NAME}는 백과사전이 아니며 검증되지 않았거나, 편향적이거나, 잘못된 서술이 있을 수 있습니다.
         <br>{WIKI_NAME}는 위키위키입니다. 여러분이 직접 문서를 고칠 수 있으며, 다른 사람의 의견을 원할 경우 직접 토론을 발제할 수 있습니다.
-        <br><b>© 2026 {WIKI_NAME} (3기)</b>
+        <br><b>© 2026 {WIKI_NAME}</b>
         </p>
     </footer>'''
 
@@ -54,7 +54,7 @@ AUTO_CREATE_DOCUMENT_CONTENT = {
 [[파일:{filename}|width=100%]]
 [목차]
 ## 개요
-| <rowbgcolor=black><rowcolor=white> 항목 | 설명 |
+| <tablebordercolor=#cccccc><rowbgcolor=black><rowcolor=white> **항목** | **설명** |
 | 출처 | 출처를 반드시 삽입해 주세요. |
 | 날짜 | 이미지가 만들어진 날짜를 삽입해 주세요. |
 | 저작자 | 이미지의 저작자를 삽입해 주세요. |

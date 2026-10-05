@@ -1,4 +1,21 @@
 document.addEventListener("DOMContentLoaded", function() {
+    const moreMenu = document.querySelector(".menu-more");
+
+    if (moreMenu) {
+        document.addEventListener("click", function(event) {
+            if (moreMenu.open && !moreMenu.contains(event.target)) {
+                moreMenu.open = false;
+            }
+        });
+
+        document.addEventListener("keydown", function(event) {
+            if (event.key === "Escape" && moreMenu.open) {
+                moreMenu.open = false;
+                moreMenu.querySelector("summary").focus();
+            }
+        });
+    }
+
     const pageMode = document.body.dataset.pageMode;
     const documentTitle = document.body.dataset.documentTitle;
     const mainPage = document.body.dataset.mainPage;

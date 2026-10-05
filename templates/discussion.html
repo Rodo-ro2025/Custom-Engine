@@ -11,15 +11,20 @@
     <div class="menu">
         <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
 
-        {% if session.get('user') %}
-            <a href="/Logout" class="box">로그아웃</a>&nbsp;
-        {% else %}
-            <a href="/Sign_Up" class="box">회원가입</a>&nbsp;
-            <a href="/Revisit" class="box">로그인</a>&nbsp;
-        {% endif %}
+        <details class="menu-more">
+            <summary>더보기</summary>
+            <div class="menu-more-panel">
+                {% if session.get('user') %}
+                    <a href="/Logout" class="box">로그아웃</a>
+                {% else %}
+                    <a href="/Sign_Up" class="box">회원가입</a>
+                    <a href="/Revisit" class="box">로그인</a>
+                {% endif %}
+                <a href="/RandomPage" class="box">무작위 문서</a>
+            </div>
+        </details>
 
         <a href="/w/{{ title }}" class="box">읽기</a>&nbsp;
-        <a href="/RandomPage" class="Random">↻</a>&nbsp;
         <form action="/search">
             <input type="text" name="q" placeholder="Search wiki...">
             <button>검색</button>
