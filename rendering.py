@@ -1008,7 +1008,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 extensions=["extra", "codehilite", "nl2br", "md_in_html", "toc"]
             )
 
-        elif f == "ourwiki":
+        elif f == "custom_grammer":
             if config.SAFE_HTML:
                 rendered = html.escape(rendered)
 
