@@ -25,7 +25,7 @@
     - **'STRIKETHROUGH'** 변수는 취소선을 보이게 할 것인지 안 보이게 할 건지 선택하는 변수입니다.
   - **'QUICK_EXECUTION'** 변수는 빠르게 실행하기 위해 컴퓨터가 생성하는 파일을 보존할지 제거할지 선택하는 겁니다. False로 설정할 경우 해당 파일은 자동으로 제거됩니다.
   - **'STUB_LENGTH'** 변수는 해당 수보다 문서 길이가 짧은 경우 자동으로 토막글이 붙습니다.
-  - **'RENDERING_LIST'** 변수는 'ourwiki'와 'markdown' 2가지를 지원합니다. 중복 문법이 있을 수 있으니 주의해서 사용해주세요.
+  - **'RENDERING_LIST'** 변수는 'custom_grammer'와 'markdown' 2가지를 지원합니다. 중복 문법이 있을 수 있으니 주의해서 사용해주세요.
     - **'Markdown'** 변수는 extra, codehilite, nl2br, md_in_html, toc가 있습니다. 모르신다면 AI에게 아래의 내용을 복붙해주세요.
       - **Explain these Python Markdown extensions in Korean: ['extra', 'codehilite', 'nl2br', 'md_in_html', 'toc']**
   - **'NAMESPACE_LIST'** 변수는 분류 메뉴에서 나오는 탭 순서로, 문서 - 변수 순서대로 나오므로 원하는 순서대로 넣으시길 바랍니다. 문서는 맨 처음입니다.
