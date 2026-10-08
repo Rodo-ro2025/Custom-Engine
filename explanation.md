@@ -39,7 +39,7 @@
 - **Version Beta**
   - **0.1v**: `HTML` 파일 다수 생성. `app.py` 메인 기능 생성.
   - **0.2v**: `rendering.py` 파일 생성.
-  - **0.3v**: `rendering.py` 파일 'ourwiki' 문법 최초 도입.
+  - **0.3v**: `rendering.py` 파일 'custom_grammer' 문법 최초 도입.
   - **0.4v**: `app.py` 기능 다수 생성.
   - **0.5v**: `rendering.py` 파일 조건문·{{#wiki}}·리다이렉트 등 추가.
   - **0.6v**: 최종 wiki 풀더 검토.
