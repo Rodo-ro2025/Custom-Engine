@@ -15,7 +15,7 @@ PORT = 5000
 
 IMAGE = "image"
 SAFE_HTML = True
-ALLOWED_IMAGE_EXTENSIONS = {"avif", "bmp", "gif", "jfif", "jpeg", "jpg", "png", "webp"}
+ALLOWED_IMAGE_EXTENSIONS = {"avif", "bmp", "gif", "jfif", "jpeg", "jpg", "png", "svg", "webp"}
 
 # --- Free editing ---
 WIKI_NAME = "MYWIKI"

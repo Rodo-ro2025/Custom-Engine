@@ -12,7 +12,6 @@ import difflib
 import datetime
 import time
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 import html
 
 # --- Personal Module ---
@@ -1798,7 +1797,9 @@ def upload_image():
         return flask.abort(400)
         
     if file:
-        filename = secure_filename(file.filename)
+        filename = file.filename.replace("\\", "/").rsplit("/", 1)[-1]
+        filename = re.sub(r"[^가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9._-]+", "_", filename)
+        filename = filename.strip("._")
         extension = os.path.splitext(filename)[1].lstrip(".").casefold()
         allowed_extensions = {
             str(item).lstrip(".").casefold()
@@ -1878,9 +1879,9 @@ def delete_document(Document):
         wiki_color=config.LOGO_COLOR
     )
 
+@app.errorhandler(400)
 @app.errorhandler(403)
 @app.errorhandler(404)
-@app.errorhandler(405)
 @app.errorhandler(409)
 @app.errorhandler(500)
 def global_error_handler(e):

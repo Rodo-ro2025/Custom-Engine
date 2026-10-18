@@ -20,6 +20,14 @@ import config
 from table import table
 
 
+_UNSAFE_SOURCE_ELEMENT_PATTERN = re.compile(
+    r'<\s*(script|style|iframe|object|applet)\b[^>]*>.*?'
+    r'</\s*\1\s*>'
+    r'|<\s*(?:embed|base|meta|link)\b[^>]*?/?>',
+    re.IGNORECASE | re.DOTALL
+)
+
+
 class _SafeHTMLParser(HTMLParser):
     allowed_tags = {
         'a', 'abbr', 'b', 'blockquote', 'br', 'caption', 'cite', 'code',
@@ -239,8 +247,11 @@ def _sanitize_source_html(value):
     parser = _SafeHTMLParser()
     parser.feed(value)
     parser.close()
-
     return ''.join(parser.output)
+
+
+def _strip_unsafe_source_elements(value):
+    return _UNSAFE_SOURCE_ELEMENT_PATTERN.sub('', value)
 
 
 @lru_cache(maxsize=1)
@@ -283,8 +294,20 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
     Secured = []
     folding_blocks = []
     style_blocks = []
+    protected_table_syntax = []
+    protected_marker_prefix = None
     effective_params = include_params or {}
     active_stack = list(include_stack or [])
+
+    def restore_protected_table_syntax(value):
+        if not config.SAFE_HTML or protected_marker_prefix is None:
+            return value
+        for protected_index, source_syntax in enumerate(protected_table_syntax):
+            value = value.replace(
+                f'{protected_marker_prefix}TABLE{protected_index}END',
+                source_syntax
+            )
+        return value
 
     def link(t):
         def normalize_internal_link_target(target):
@@ -1919,7 +1942,9 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
             result.append(t[cursor:opening_match.start()])
             title = (opening_match.group(1) or '').strip() or config.FOLDING_STANDARD_TEXT
-            inner_text = t[opening_match.end():close_match.start()]
+            inner_text = restore_protected_table_syntax(
+                t[opening_match.end():close_match.start()]
+            )
             rendered_inner = rendering(
                 inner_text.strip('\r\n'),
                 function=function,
@@ -1947,12 +1972,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         if not preprocessing_done:
             if 'custom_grammer' in function:
                 rendered = brace(rendered, protect_only=True)
-            rendered = re.sub(
-                r'<(?:script|style)[^>]*>.*?</(?:script|style)>',
-                r'',
-                rendered,
-                flags=re.DOTALL | re.IGNORECASE
-            )
+            rendered = _strip_unsafe_source_elements(rendered)
             preprocessing_done = True
 
         if f == "markdown":
@@ -1965,7 +1985,6 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
         elif f == "custom_grammer":
             custom_grammar_processed = True
-            protected_table_syntax = []
             if config.SAFE_HTML:
                 protected_wiki_blocks = []
                 protected_marker_prefix = 'WIKIPRESERVEDWIKISYNTAX'
@@ -2060,11 +2079,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             rendered = macro(rendered)
             rendered = link(rendered)
             rendered = nested_list(rendered)
-            for index, source_syntax in enumerate(protected_table_syntax):
-                rendered = rendered.replace(
-                    f'{protected_marker_prefix}TABLE{index}END',
-                    source_syntax
-                )
+            rendered = restore_protected_table_syntax(rendered)
             rendered = table(rendered)
 
             for index, folding_html in enumerate(folding_blocks):
@@ -2140,12 +2155,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             continue
 
     if not preprocessing_done:
-        rendered = re.sub(
-            r'<\s*(?:script|style)[^>]*>.*?</\s*(?:script|style)\s*>',
-            r'',
-            rendered,
-            flags=re.DOTALL | re.IGNORECASE
-        )
+        rendered = _strip_unsafe_source_elements(rendered)
 
     for literal_index, literal_text in enumerate(literal_blocks):
         literal_html = (
