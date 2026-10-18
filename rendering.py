@@ -107,6 +107,29 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
             return link_title, url, lookup_title
 
+        def safe_link_display(value):
+            result = []
+            cursor = 0
+            color_span_depth = 0
+            tag_pattern = re.compile(r'<[^>]*>')
+            color_span_pattern = re.compile(
+                r'<span style="color: (?:#[0-9A-Fa-f]{3,8}|[A-Za-z][A-Za-z0-9-]*);">'
+            )
+
+            for match in tag_pattern.finditer(value):
+                result.append(html.escape(html.unescape(value[cursor:match.start()]), quote=False))
+                tag = match.group(0)
+                if color_span_pattern.fullmatch(tag):
+                    result.append(tag)
+                    color_span_depth += 1
+                elif tag == '</span>' and color_span_depth:
+                    result.append(tag)
+                    color_span_depth -= 1
+                cursor = match.end()
+
+            result.append(html.escape(html.unescape(value[cursor:]), quote=False))
+            return ''.join(result)
+
         t = re.sub(
             r'@([^@\s]+)@',
             lambda m: str(effective_params.get(m.group(1), '')),
@@ -153,7 +176,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
             plain_title = html.escape(re.sub(r"<[^>]+>", "", url), quote=True)
             safe_url = html.escape(url, quote=True)
-            safe_title = html.escape(re.sub(r"<[^>]+>", "", title), quote=False)
+            safe_title = safe_link_display(title)
 
             return f'<a class="wiki-link external" href="{safe_url}" target="_blank" title="{plain_title}">🔗{safe_title}</a>'
 
@@ -174,7 +197,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 link_title, relative_url, lookup_title = relative_link
                 plain_title = html.escape(link_title, quote=True)
                 safe_doc_url = html.escape(relative_url, quote=True)
-                safe_display_name = html.escape(re.sub(r"<[^>]+>", "", display_name), quote=False)
+                safe_display_name = safe_link_display(display_name)
                 if lookup_title is not None and db_check_func and not db_check_func(lookup_title):
                     return f'<a class="wiki-link erroneous" href="{safe_doc_url}" title="{plain_title}">{safe_display_name}</a>'
                 return f'<a class="wiki-link" href="{safe_doc_url}" title="{plain_title}">{safe_display_name}</a>'
@@ -182,7 +205,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             plain_title = html.escape(re.sub(r"<[^>]+>", "", doc_name), quote=True)
             if doc_name.startswith('#') and len(doc_name) > 1 and not (db_check_func and db_check_func(doc_name)):
                 safe_anchor = html.escape('#' + quote(doc_name[1:], safe=''), quote=True)
-                safe_display_name = html.escape(re.sub(r"<[^>]+>", "", display_name), quote=False)
+                safe_display_name = safe_link_display(display_name)
                 return f'<a class="wiki-link" href="{safe_anchor}" title="{plain_title}">{safe_display_name}</a>'
 
             safe_doc_url = html.escape(internal_link_url(doc_name), quote=True)
