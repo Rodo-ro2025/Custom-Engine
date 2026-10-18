@@ -11,6 +11,8 @@
     <div class="menu">
         <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
 
+        <a href="/w/{{ document_title }}" class="box">읽기</a>&nbsp;
+
         <details class="menu-more">
             <summary>더보기</summary>
             <div class="menu-more-panel">
@@ -25,8 +27,6 @@
                 <a href="{{ url_for('needed_documents') }}" class="box">문서 작성 필요</a>
             </div>
         </details>
-
-        <a href="/w/{{ document_title }}" class="box">읽기</a>&nbsp;
 
         <form action="/search">
             <input type="text" name="q" placeholder="Search wiki...">
