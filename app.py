@@ -10,6 +10,7 @@ import shutil
 import secrets
 import difflib
 import datetime
+import time
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import html
@@ -27,13 +28,13 @@ app.secret_key = config.MASTER_KEY or "Session_Key"
 def inject_footer_content():
     return {
         "footer_content": config.FOOTER_CONTENT,
-        "is_operator": is_admin_role(get_current_user_role())
+        "is_operator": is_admin_role(get_current_user_role()),
+        "is_representative": is_representative(),
+        "csrf_token": get_csrf_token()
     }
 
 if app.secret_key == "Session_Key":
     print("[ERROR] Please be careful with security. (No session key)")
-if not config.OPERATION_CODE:
-    print("[ERROR] Please be careful with security. (No operating code)")
 
 # --- function ---
 def Checking_files_and_folders(personality, name, decision=True):
@@ -422,11 +423,64 @@ def init_user_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
             password TEXT,
-            role TEXT
+            role TEXT NOT NULL DEFAULT 'user',
+            role_granted_at INTEGER
         )
     """)
+    columns = {
+        row[1] for row in cursor.execute("PRAGMA table_info(users)")
+    }
+    if "role_granted_at" not in columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN role_granted_at INTEGER")
+
+    cursor.execute("UPDATE users SET role = LOWER(role) WHERE role IS NOT NULL")
+    legacy_operators = cursor.execute(
+        """
+        SELECT id FROM users
+        WHERE LOWER(COALESCE(role, 'user')) = 'admin'
+          AND role_granted_at IS NULL
+        ORDER BY id
+        """
+    ).fetchall()
+    latest_grant = cursor.execute(
+        "SELECT COALESCE(MAX(role_granted_at), 0) FROM users"
+    ).fetchone()[0]
+    for row in legacy_operators:
+        latest_grant += 1
+        cursor.execute(
+            "UPDATE users SET role_granted_at = ? WHERE id = ?",
+            (latest_grant, row[0])
+        )
+
+    cursor.execute(
+        "UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"
+    )
+    ensure_operator_exists(cursor)
     conn.commit()
     conn.close()
+
+
+def ensure_operator_exists(cursor):
+    operator_count = cursor.execute(
+        "SELECT COUNT(*) FROM users WHERE LOWER(role) = 'admin'"
+    ).fetchone()[0]
+    if operator_count:
+        return
+
+    first_user = cursor.execute(
+        "SELECT id FROM users ORDER BY id ASC LIMIT 1"
+    ).fetchone()
+    if first_user is None:
+        return
+
+    latest_grant = cursor.execute(
+        "SELECT COALESCE(MAX(role_granted_at), 0) FROM users"
+    ).fetchone()[0]
+    cursor.execute(
+        "UPDATE users SET role = 'admin', role_granted_at = ? WHERE id = ?",
+        (max(time.time_ns(), latest_grant + 1), first_user[0])
+    )
+
 
 init_db()
 init_user_db()
@@ -448,10 +502,42 @@ def is_admin_role(role):
     normalized = str(role).strip().lower()
     return normalized == "admin"
 
-def get_current_user_role():
-    if flask.session.get('operator_authenticated'):
-        return 'admin'
 
+def is_representative():
+    username = flask.session.get('user')
+    if not username:
+        return False
+
+    db = get_db()
+    try:
+        row = db.execute(
+            """
+            SELECT username FROM users
+            WHERE LOWER(role) = 'admin'
+            ORDER BY role_granted_at ASC, id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        return row is not None and row['username'] == username
+    finally:
+        db.close()
+
+
+def get_csrf_token():
+    return flask.session.setdefault("csrf_token", secrets.token_urlsafe(32))
+
+
+def validate_csrf_token():
+    submitted_token = flask.request.form.get("csrf_token", "")
+    expected_token = flask.session.get("csrf_token", "")
+    return bool(
+        submitted_token
+        and expected_token
+        and secrets.compare_digest(submitted_token, expected_token)
+    )
+
+
+def get_current_user_role():
     username = flask.session.get('user')
     if not username:
         return None
@@ -477,6 +563,17 @@ def admin_required(f):
         if not is_admin_role(role):
             flask.abort(403)
 
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def representative_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in flask.session:
+            return flask.redirect(flask.url_for('login'))
+        if not is_representative():
+            flask.abort(403)
         return f(*args, **kwargs)
     return decorated_function
 
@@ -611,7 +708,7 @@ def view(Document):
         error_msg = f"""
         <div class="wiki-error-container">
             <h2>❌ 해당 문서가 존재하지 않습니다.</h2>
-            <p>요청하신 <b>{Document}</b> 문서는 아직 작성되지 않은 문서입니다.</p>
+            <p>요청하신 <b>{html.escape(Document, quote=False)}</b> 문서는 아직 작성되지 않은 문서입니다.</p>
             <p>이름이 올바른지 확인하시거나, 아래 링크를 통해 새로운 문서를 작성하실 수 있습니다.</p>
             <hr>
             <a href='{flask.url_for("editing", Document=Document)}' class="wiki-btn-create">✍️ 새 문서 작성하기</a>
@@ -736,7 +833,10 @@ def view(Document):
                     item_html = []
                     for item_title in items:
                         encoded_url = urllib.parse.quote(item_title)
-                        item_html.append(f'<li><a href="/w/{encoded_url}">{item_title}</a></li>')
+                        item_html.append(
+                            f'<li><a href="/w/{encoded_url}">'
+                            f'{html.escape(item_title, quote=False)}</a></li>'
+                        )
                     panel_blocks.append(
                         f'<div style="margin-bottom: 14px;">'
                         f'<strong>{html.escape(group_name)}</strong>'
@@ -907,6 +1007,119 @@ def editing(Document):
 def operator(subject):
     subject = prefix(subject)
     return flask.render_template("admin.html", title=subject, mode="admin", detail="", wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
+
+
+@app.route("/admin/users", methods=["GET"])
+@representative_required
+def manage_users():
+    conn = get_db()
+    try:
+        representative = conn.execute(
+            """
+            SELECT id FROM users
+            WHERE LOWER(role) = 'admin'
+            ORDER BY role_granted_at ASC, id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        representative_id = representative['id'] if representative else None
+        users = conn.execute(
+            "SELECT id, username, role FROM users ORDER BY username COLLATE NOCASE"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return flask.render_template(
+        "users.html",
+        title="사용자 권한 관리",
+        users=users,
+        representative_id=representative_id,
+        wiki_name=config.WIKI_NAME,
+        wiki_page=config.MAIN_PAGE,
+        wiki_color=config.LOGO_COLOR
+    )
+
+
+@app.route("/admin/users/<int:user_id>/role", methods=["POST"])
+@representative_required
+def change_user_role(user_id):
+    if not validate_csrf_token():
+        return flask.abort(400)
+
+    requested_role = flask.request.form.get("role")
+    if requested_role not in {"admin", "user"}:
+        return flask.abort(400)
+
+    conn = get_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        representative = conn.execute(
+            """
+            SELECT id, username FROM users
+            WHERE LOWER(role) = 'admin'
+            ORDER BY role_granted_at ASC, id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if (
+            representative is None
+            or representative['username'] != flask.session.get("user")
+        ):
+            conn.rollback()
+            return flask.abort(403)
+
+        if representative['id'] != user_id:
+            row = conn.execute(
+                "SELECT role FROM users WHERE id = ?",
+                (user_id,)
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                return flask.abort(404)
+
+            if requested_role == "admin" and row['role'] == "user":
+                latest_grant = conn.execute(
+                    "SELECT COALESCE(MAX(role_granted_at), 0) FROM users"
+                ).fetchone()[0]
+                granted_at = max(time.time_ns(), latest_grant + 1)
+                conn.execute(
+                    "UPDATE users SET role = 'admin', role_granted_at = ? WHERE id = ?",
+                    (granted_at, user_id)
+                )
+            elif requested_role == "user" and row['role'] == "admin":
+                conn.execute(
+                    "UPDATE users SET role = 'user', role_granted_at = NULL WHERE id = ?",
+                    (user_id,)
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return flask.redirect(flask.url_for("manage_users"))
+
+
+@app.route("/OperatorResignation", methods=["POST"])
+@admin_required
+def operator_resignation():
+    if not validate_csrf_token():
+        return flask.abort(400)
+
+    username = flask.session.get("user")
+    conn = get_db()
+    try:
+        conn.execute(
+            """
+            UPDATE users SET role = 'user', role_granted_at = NULL
+            WHERE username = ? AND LOWER(role) = 'admin'
+            """,
+            (username,)
+        )
+        ensure_operator_exists(conn)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return flask.redirect(flask.url_for("index"))
 
 
 @app.route("/admin/blocks", methods=["GET"])
@@ -1474,7 +1687,6 @@ def register():
     if flask.request.method == "POST":
         username = flask.request.form.get("id")
         password = flask.request.form.get("pw")
-        operation_code = flask.request.form.get("operation_code")
 
         if not username or not password:
             return flask.abort(400)
@@ -1484,37 +1696,26 @@ def register():
 
         conn = sqlite3.connect(config.DB_USER_PATH)
         cur = conn.cursor()
-
-        cur.execute("SELECT COUNT(*) FROM users")
-        user_count = cur.fetchone()[0]
-
-        cur.execute(
-            "SELECT username FROM users WHERE username = ?",
-            (username,)
-        )
-
-        if cur.fetchone():
-            conn.close()
+        try:
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute("SELECT COUNT(*) FROM users")
+            is_first_user = cur.fetchone()[0] == 0
+            cur.execute(
+                "INSERT INTO users (username, password, role, role_granted_at) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    username,
+                    generate_password_hash(password),
+                    "admin" if is_first_user else "user",
+                    time.time_ns() if is_first_user else None
+                )
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
             return flask.abort(409)
-
-        hashed_pw = generate_password_hash(password)
-
-        if user_count == 0:
-            role = "admin"
-        else:
-            expected_code = config.OPERATION_CODE or "Admin_Code"
-            if operation_code == expected_code:
-                role = "admin"
-            else:
-                role = "user"
-
-        cur.execute(
-            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-            (username, hashed_pw, role)
-        )
-
-        conn.commit()
-        conn.close()
+        finally:
+            conn.close()
 
         user_document_title = f"사용자:{username}"
 
@@ -1538,7 +1739,6 @@ def login():
     if flask.request.method == "POST":
         user_id = flask.request.form.get("id")
         user_pw = flask.request.form.get("pw")
-        operation_code = flask.request.form.get("operation_code", "")
 
         if not user_id or not user_pw:
             return flask.abort(400)
@@ -1557,9 +1757,6 @@ def login():
         if user and check_password_hash(user[0], user_pw):
             flask.session.permanent = True
             flask.session['user'] = user_id
-            flask.session['operator_authenticated'] = bool(
-                config.OPERATION_CODE and operation_code == config.OPERATION_CODE
-            )
 
             return flask.redirect(flask.url_for('index'))
         else:
@@ -1570,7 +1767,6 @@ def login():
 @app.route("/Logout")
 def logout():
     flask.session.pop('user', None)
-    flask.session.pop('operator_authenticated', None)
     return flask.redirect(flask.url_for("index"))
 
 @app.route("/upload", methods=["GET", "POST"])
@@ -1634,11 +1830,11 @@ def upload_image():
         result_html = f"""
         <div class="wiki-success-container" style="padding: 20px; border: 1px solid #28a745; border-radius: 6px; background-color: #f8fff9;">
             <h2 style="color: #28a745;">🎉 업로드 및 파일 문서 생성 완료!</h2>
-            <p>서버에 파일이 안전하게 저장되었으며, <b><a href="/w/{encoded_title}" target="_blank" style="color: #007bff; font-weight: bold;">{wiki_title}</a></b> 문서가 자동 생성되었습니다!</p>
+            <p>서버에 파일이 안전하게 저장되었으며, <b><a href="/w/{encoded_title}" target="_blank" style="color: #007bff; font-weight: bold;">{html.escape(wiki_title, quote=False)}</a></b> 문서가 자동 생성되었습니다!</p>
             <hr>
             <p>아래 코드를 복사해서 다른 위키 문서 편집창에 자유롭게 붙여넣으세요:</p>
             <div style="background: #e9ecef; padding: 15px; font-family: monospace; font-size: 1.2rem; border-radius: 4px; border: 1px solid #ced4da; margin: 15px 0;">
-                <b>[[파일:{filename}]]</b>
+                <b>[[파일:{html.escape(filename, quote=False)}]]</b>
             </div>
             <a href="/upload" style="color: #007bff; text-decoration: none;">🔄 다른 이미지 더 올리기</a> | 
             <a href="/" style="color: #007bff; text-decoration: none;">🏠 홈으로 이동</a>

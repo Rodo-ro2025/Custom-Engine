@@ -44,6 +44,14 @@ body {
     text-decoration: none;
 }
 
+.menu .box[type="submit"] {
+    box-sizing: border-box;
+    font-family: inherit;
+    line-height: inherit;
+    margin-left: 0;
+    vertical-align: middle;
+}
+
 
 .menu > a:first-child {
     margin-right: auto;
@@ -89,6 +97,148 @@ body {
     display: block;
     text-align: left;
     white-space: nowrap;
+}
+
+.menu-more-panel form {
+    width: 100%;
+    margin: 0;
+}
+
+.menu-more-panel form > .box[type="submit"] {
+    width: 100%;
+}
+
+.user-management-header {
+    margin-bottom: 22px;
+}
+
+.user-management-header h1 {
+    margin-bottom: 4px;
+}
+
+.user-management-header p {
+    margin: 0;
+    color: #57606a;
+}
+
+.user-management-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #d8dee4;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(31, 35, 40, 0.06);
+}
+
+.user-management-table {
+    width: 100%;
+    min-width: 520px;
+    border-collapse: collapse;
+    background: #ffffff;
+    text-align: left;
+}
+
+.user-management-table th,
+.user-management-table td {
+    padding: 14px 18px;
+    border-bottom: 1px solid #eaeef2;
+}
+
+.user-management-table th {
+    background: #f6f8fa;
+    color: #57606a;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.user-management-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.user-management-table tbody tr:not(.is-representative):hover {
+    background: #f8fbff;
+}
+
+.user-management-table .is-representative {
+    background: #fffbeb;
+}
+
+.user-management-name {
+    color: #24292f;
+    font-weight: 600;
+}
+
+.user-role-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.user-role-badge.representative {
+    border-color: #f1d592;
+    background: #fff4cc;
+    color: #7d4e00;
+}
+
+.user-role-badge.operator {
+    border-color: #c5d9ff;
+    background: #edf4ff;
+    color: #1f5fbf;
+}
+
+.user-role-badge.member {
+    border-color: #d8dee4;
+    background: #f6f8fa;
+    color: #57606a;
+}
+
+.user-management-action form {
+    margin: 0;
+}
+
+.user-role-action {
+    margin: 0;
+    padding: 7px 12px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.user-role-action.promote {
+    border-color: #1f883d;
+    background: #1f883d;
+}
+
+.user-role-action.promote:hover {
+    background: #1a7f37;
+}
+
+.user-role-action.demote {
+    border-color: #d1d9e0;
+    background: #ffffff;
+    color: #cf222e;
+}
+
+.user-role-action.demote:hover {
+    border-color: #cf222e;
+    background: #fff1f0;
+}
+
+.user-management-locked {
+    color: #8c6a1f;
+    font-size: 13px;
+}
+
+.user-management-empty {
+    padding: 32px 18px !important;
+    color: #57606a;
+    text-align: center;
 }
 
 @media (max-width: 640px) {

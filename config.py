@@ -3,7 +3,6 @@ import os
 
 # --- Please be careful with security when approaching ---
 MASTER_KEY = "X9f!a7Qz#Lm2^tBv@R4k"
-OPERATION_CODE = "pW3$Zr8*Yh1!nKj6%Tq"
 
 # --- Exercise caution when approaching ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

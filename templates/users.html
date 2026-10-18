@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - {{ wiki_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</head>
+<body>
+    <div class="menu">
+        <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
+        <a href="/w/{{ wiki_page }}" class="box">위키로 돌아가기</a>&nbsp;
+        <a href="{{ url_for('manage_blocks') }}" class="box">차단 관리</a>&nbsp;
+        <form method="post" action="{{ url_for('operator_resignation') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="box" type="submit">운영자 사퇴</button>
+        </form>&nbsp;
+        <a href="/Logout" class="box">로그아웃</a>&nbsp;
+    </div>
+    <main class="container">
+        <header class="user-management-header">
+            <h1>사용자 권한 관리</h1>
+            <p>대표 운영자는 사용자를 운영자로 승격하거나 일반 사용자로 변경할 수 있습니다.</p>
+        </header>
+        <div class="user-management-table-wrap">
+            <table class="user-management-table">
+                <thead>
+                    <tr>
+                        <th scope="col">사용자</th>
+                        <th scope="col">권한</th>
+                        <th scope="col">작업</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                        <tr{% if user['id'] == representative_id %} class="is-representative"{% endif %}>
+                            <td class="user-management-name">{{ user['username'] }}</td>
+                            <td>
+                                {% if user['id'] == representative_id %}
+                                    <span class="user-role-badge representative">대표 운영자</span>
+                                {% elif user['role'] == 'admin' %}
+                                    <span class="user-role-badge operator">운영자</span>
+                                {% else %}
+                                    <span class="user-role-badge member">일반 사용자</span>
+                                {% endif %}
+                            </td>
+                            <td class="user-management-action">
+                                {% if user['id'] == representative_id %}
+                                    <span class="user-management-locked">대표 운영자</span>
+                                {% elif user['role'] == 'user' %}
+                                    <form method="post" action="{{ url_for('change_user_role', user_id=user['id']) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <input type="hidden" name="role" value="admin">
+                                        <button class="user-role-action promote" type="submit">운영자로 승격</button>
+                                    </form>
+                                {% elif user['role'] == 'admin' %}
+                                    <form method="post" action="{{ url_for('change_user_role', user_id=user['id']) }}">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <input type="hidden" name="role" value="user">
+                                        <button class="user-role-action demote" type="submit">일반 사용자로 강등</button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td class="user-management-empty" colspan="3">등록된 사용자가 없습니다.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {{ footer_content|safe }}
+    </main>
+</body>
+</html>

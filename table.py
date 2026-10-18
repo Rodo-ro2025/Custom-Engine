@@ -1,11 +1,9 @@
 # table.py
 # --- Official Module ---
-import html
 import re
 
 # --- Personal Module ---
 import config
-import rendering
 
 
 STYLE_TAGS = {
@@ -269,12 +267,6 @@ def table(t):
 
                         rendered_cell = text if text else ''
                         if rendered_cell:
-                            rendered_cell = rendering.rendering(
-                                rendered_cell,
-                                function=config.RENDERING_LIST,
-                                db_check_func=None,
-                                current_title=None
-                            )
                             rendered_cell = rendered_cell.replace('\n', '')
 
                         row_html.append(f'<td{style_attr}>{rendered_cell}</td>')

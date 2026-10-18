@@ -17,6 +17,12 @@
             <summary>더보기</summary>
             <div class="menu-more-panel">
                 {% if session.get('user') %}
+                    {% if is_operator %}
+                        <form method="post" action="{{ url_for('operator_resignation') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="box" type="submit">운영자 사퇴</button>
+                        </form>
+                    {% endif %}
                     <a href="/Logout" class="box">로그아웃</a>
                 {% else %}
                     <a href="/Sign_Up" class="box">회원가입</a>

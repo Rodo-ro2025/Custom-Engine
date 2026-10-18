@@ -15,6 +15,10 @@
             <div class="menu-more-panel">
                 {% if session.get('user') %}
                     <a href="/w/사용자:{{ session.get('user') }}" class="box">사용자 문서</a>
+                    <form method="post" action="{{ url_for('operator_resignation') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button class="box" type="submit">운영자 사퇴</button>
+                    </form>
                     <a href="/Logout" class="box">로그아웃</a>
                 {% else %}
                     <a href="/Sign_Up" class="box">회원가입</a>

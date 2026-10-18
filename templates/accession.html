@@ -15,6 +15,12 @@
             <summary>더보기</summary>
             <div class="menu-more-panel">
                 {% if session.get('user') %}
+                    {% if is_operator %}
+                        <form method="post" action="{{ url_for('operator_resignation') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="box" type="submit">운영자 사퇴</button>
+                        </form>
+                    {% endif %}
                     <a href="/Logout" class="box">로그아웃</a>
                 {% else %}
                     <a href="/Sign_Up" class="box">회원가입</a>
@@ -38,7 +44,6 @@
             <form action="{{ '/Revisit' if again else '/Sign_Up' }}" method="POST">
                 <input type="text" name="id" placeholder="아이디 입력" required>
                 <input type="password" name="pw" placeholder="비밀번호 입력" required>
-                <input type="password" name="operation_code" placeholder="운영자 코드 (선택)">
                 <button type="submit">전송하기</button>
             </form>
         {% else %}
@@ -48,7 +53,6 @@
             <form action="{{ '/Revisit' if again else '/Sign_Up' }}" method="POST">
                 <input type="text" name="id" placeholder="영문·숫자 닉네임" pattern="[A-Za-z0-9]+" title="닉네임은 영문과 숫자만 사용할 수 있습니다." required>
                 <input type="password" name="pw" placeholder="비밀번호 입력" required>
-                <input type="password" name="operation_code" placeholder="운영자 코드 (선택)">
                 <button type="submit">전송하기</button>
             </form>
         {% endif %}

@@ -4,6 +4,7 @@ import flask
 import html
 import re
 import markdown
+from html.parser import HTMLParser
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -17,6 +18,229 @@ from pygments.util import ClassNotFound
 # --- Personal Module ---
 import config
 from table import table
+
+
+class _SafeHTMLParser(HTMLParser):
+    allowed_tags = {
+        'a', 'abbr', 'b', 'blockquote', 'br', 'caption', 'cite', 'code',
+        'del', 'details', 'div', 'em', 'figcaption', 'figure',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'hr', 'i', 'img', 'li', 'ol', 'p', 'pre',
+        'q', 's', 'small', 'span', 'strong',
+        'sub', 'summary', 'sup', 'table',
+        'tbody', 'td', 'tfoot', 'th',
+        'thead', 'tr', 'u', 'ul',
+    }
+
+    void_tags = {'br', 'hr', 'img'}
+
+    global_attributes = {
+        'dir',
+        'lang',
+        'title',
+    }
+
+    tag_attributes = {
+        'a': {'href', 'rel', 'target'},
+        'img': {'alt', 'height', 'src', 'width'},
+        'td': {'colspan', 'rowspan'},
+        'th': {'colspan', 'rowspan'},
+    }
+
+    max_attribute_length = 1024
+    max_url_length = 2048
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.output = []
+        self.open_tags = []
+
+    def _clean_value(self, value):
+        return ''.join(
+            ch for ch in value
+            if ord(ch) >= 32 or ch in '\t\r\n'
+        )
+
+    def _validate_url(self, value, attribute_name):
+        normalized_url = html.unescape(value).strip()
+
+        if len(normalized_url) > self.max_url_length:
+            return False
+
+        if re.search(r'[\x00-\x20]', normalized_url):
+            return False
+
+        if normalized_url.startswith('//'):
+            return False
+
+        parsed = urlsplit(normalized_url)
+        scheme = parsed.scheme.lower()
+
+        allowed_schemes = (
+            {'http', 'https', 'mailto', 'tel'}
+            if attribute_name == 'href'
+            else {'http', 'https'}
+        )
+
+        if scheme and scheme not in allowed_schemes:
+            return False
+
+        return True
+
+    def _attributes(self, tag, attrs):
+        safe_attrs = []
+
+        allowed = (
+            self.global_attributes |
+            self.tag_attributes.get(tag, set())
+        )
+
+        for name, value in attrs:
+            if name not in allowed:
+                continue
+
+            if value is None:
+                continue
+
+            value = self._clean_value(value.strip())
+
+            if len(value) > self.max_attribute_length:
+                continue
+
+            if name in {'href', 'src'}:
+                if not self._validate_url(value, name):
+                    continue
+
+            elif name in {'colspan', 'rowspan', 'height', 'width'}:
+                if not re.fullmatch(r'\d{1,5}', value):
+                    continue
+
+            elif name == 'target':
+                if value not in {'_blank', '_self'}:
+                    continue
+
+            elif name == 'dir':
+                if value.lower() not in {'ltr', 'rtl', 'auto'}:
+                    continue
+
+            safe_attrs.append((name, value))
+
+        if (
+            tag == 'a' and
+            any(
+                name == 'target' and value == '_blank'
+                for name, value in safe_attrs
+            )
+        ):
+            rel = next(
+                (
+                    value
+                    for name, value in safe_attrs
+                    if name == 'rel'
+                ),
+                ''
+            )
+
+            safe_attrs = [
+                (name, value)
+                for name, value in safe_attrs
+                if name != 'rel'
+            ]
+
+            safe_attrs.append(
+                (
+                    'rel',
+                    ' '.join(
+                        sorted(
+                            set(rel.split()) |
+                            {'noopener', 'noreferrer'}
+                        )
+                    )
+                )
+            )
+
+        return ''.join(
+            f' {name}="{html.escape(value, quote=True)}"'
+            for name, value in safe_attrs
+        )
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in self.allowed_tags:
+            return
+
+        self.output.append(
+            f'<{tag}{self._attributes(tag, attrs)}>'
+        )
+
+        if tag not in self.void_tags:
+            self.open_tags.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if tag not in self.allowed_tags:
+            return
+
+        attributes = self._attributes(tag, attrs)
+
+        if tag in self.void_tags:
+            self.output.append(
+                f'<{tag}{attributes}>'
+            )
+        else:
+            self.output.append(
+                f'<{tag}{attributes}></{tag}>'
+            )
+
+    def handle_endtag(self, tag):
+        if tag not in self.allowed_tags:
+            return
+
+        if tag in self.void_tags:
+            return
+
+        if self.open_tags and self.open_tags[-1] == tag:
+            self.open_tags.pop()
+            self.output.append(f'</{tag}>')
+
+    def handle_data(self, data):
+        self.output.append(
+            html.escape(data, quote=False)
+        )
+
+    def handle_entityref(self, name):
+        self.output.append(f'&{name};')
+
+    def handle_charref(self, name):
+        self.output.append(f'&#{name};')
+
+    def handle_comment(self, data):
+        return
+
+    def handle_decl(self, decl):
+        return
+
+    def handle_pi(self, data):
+        return
+
+    def close(self):
+        super().close()
+
+        while self.open_tags:
+            self.output.append(
+                f'</{self.open_tags.pop()}>'
+            )
+
+def _sanitize_source_html(value):
+    if not isinstance(value, str):
+        return ''
+
+    if len(value) > 100_000:
+        value = value[:100_000]
+
+    parser = _SafeHTMLParser()
+    parser.feed(value)
+    parser.close()
+
+    return ''.join(parser.output)
 
 
 @lru_cache(maxsize=1)
@@ -732,7 +956,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             return pattern.sub(replace_color, text)
 
         def evaluate_condition(expr):
-            expr = expr.strip()
+            expr = html.unescape(expr.strip())
 
             if not expr:
                 return False
@@ -1570,10 +1794,10 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         return heading_pattern.sub(index, t)
 
     def blockquote(t):
-        pattern = r'(?:^>[ \t]*.*\n?)+'
+        pattern = r'(?:(?:^>|^&gt;)[ \t]*.*\n?)+'
 
         def _wrap(m):
-            inner = re.sub(r'^>[ \t]*', '', m.group(0), flags=re.MULTILINE)
+            inner = re.sub(r'^(?:>|&gt;)[ \t]*', '', m.group(0), flags=re.MULTILINE)
             lines = inner.splitlines()
             processed = []
 
@@ -1741,8 +1965,63 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
         elif f == "custom_grammer":
             custom_grammar_processed = True
+            protected_table_syntax = []
             if config.SAFE_HTML:
-                rendered = html.escape(rendered)
+                protected_wiki_blocks = []
+                protected_marker_prefix = 'WIKIPRESERVEDWIKISYNTAX'
+                while protected_marker_prefix in rendered:
+                    protected_marker_prefix += 'X'
+
+                wiki_block_pattern = re.compile(
+                    r'{{#wiki(?:\s+[^{}]*?)?\s*}}',
+                    re.DOTALL | re.IGNORECASE
+                )
+                table_syntax_pattern = re.compile(
+                    r'<(?:tablealign|tablebgcolor|tablecolor|tablebordercolor|'
+                    r'tabletextalign|tablewidth|bgcolor|color|width|rowbgcolor|'
+                    r'rowcolor|rowtextalign|colbgcolor|colcolor|coltextalign|'
+                    r'textalign)(?:=[^<>"\']*)?>|<\^\d+>|<-\d+>|<[():]>',
+                    re.IGNORECASE
+                )
+
+                def preserve_source_syntax(value, preserved_values, kind):
+                    marker = (
+                        f'{protected_marker_prefix}{kind}'
+                        f'{len(preserved_values)}END'
+                    )
+                    preserved_values.append(value)
+                    return marker
+
+                rendered = wiki_block_pattern.sub(
+                    lambda match: preserve_source_syntax(
+                        match.group(0),
+                        protected_wiki_blocks,
+                        'BLOCK'
+                    ),
+                    rendered
+                )
+
+                def preserve_table_syntax(line_match):
+                    return table_syntax_pattern.sub(
+                        lambda match: preserve_source_syntax(
+                            match.group(0),
+                            protected_table_syntax,
+                            'TABLE'
+                        ),
+                        line_match.group(0)
+                    )
+
+                rendered = re.sub(
+                    r'(?m)^[^\r\n]*\|[^\r\n]*',
+                    preserve_table_syntax,
+                    rendered
+                )
+                rendered = _sanitize_source_html(rendered)
+                for index, source_syntax in enumerate(protected_wiki_blocks):
+                    rendered = rendered.replace(
+                        f'{protected_marker_prefix}BLOCK{index}END',
+                        source_syntax
+                    )
 
             rendered = re.sub(r'\\(.*?)\\', lambda m: ''.join(f'&#{ord(c)};' for c in m.group(1)), rendered)
             rendered = re.sub(r'^//\s*(.*?)$', '', rendered, flags=re.MULTILINE)
@@ -1781,6 +2060,11 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             rendered = macro(rendered)
             rendered = link(rendered)
             rendered = nested_list(rendered)
+            for index, source_syntax in enumerate(protected_table_syntax):
+                rendered = rendered.replace(
+                    f'{protected_marker_prefix}TABLE{index}END',
+                    source_syntax
+                )
             rendered = table(rendered)
 
             for index, folding_html in enumerate(folding_blocks):

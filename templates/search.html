@@ -17,6 +17,13 @@
                 {% if session.get('user') %}
                     {% if is_operator %}
                         <a href="{{ url_for('manage_blocks') }}" class="box">차단 관리</a>
+                        <form method="post" action="{{ url_for('operator_resignation') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <button class="box" type="submit">운영자 사퇴</button>
+                        </form>
+                    {% endif %}
+                    {% if is_representative %}
+                        <a href="{{ url_for('manage_users') }}" class="box">사용자 권한 관리</a>
                     {% endif %}
                     <a href="/Logout" class="box">로그아웃</a>
                 {% else %}
