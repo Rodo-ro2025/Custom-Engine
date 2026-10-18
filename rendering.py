@@ -1141,6 +1141,37 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             if lowered == 'title':
                 return bool(current_title or '')
 
+            compound_assignment_match = re.fullmatch(
+                r'\s*(@?[a-zA-Z가-힣_][a-zA-Z가-힣0-9_]*@?)\s*([+\-*/])=\s*(.*?)\s*',
+                expr,
+                re.DOTALL
+            )
+            if compound_assignment_match:
+                name = get_parameter_name(compound_assignment_match.group(1))
+                operator = compound_assignment_match.group(2)
+                value_expr = compound_assignment_match.group(3)
+                if name in effective_params and value_expr:
+                    left_value = effective_params[name]
+                    right_value = resolve_token(value_expr)
+                    try:
+                        left_number = float(left_value)
+                        right_number = float(right_value)
+                        if operator == '+':
+                            result = left_number + right_number
+                        elif operator == '-':
+                            result = left_number - right_number
+                        elif operator == '*':
+                            result = left_number * right_number
+                        else:
+                            result = left_number / right_number
+                    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+                        return False
+
+                    if result.is_integer():
+                        result = int(result)
+                    effective_params[name] = str(result)
+                    return bool(effective_params[name])
+
             assignment_matches = list(re.finditer(r'(?<![=!<>])=(?!=)', expr))
             if len(assignment_matches) == 1:
                 assignment_match = assignment_matches[0]
