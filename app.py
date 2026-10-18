@@ -251,13 +251,13 @@ def get_backlinks(Document):
     escaped_file_target = re.escape(file_target)
     backlink_patterns = {
         "link": re.compile(
-            rf'(?<!파일:)(?<!분류:)\[\[{escaped_document}(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]'
+            rf'(?<!\\)\[\[{escaped_document}(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]'
         ),
         "file": re.compile(
-            rf'\[\[파일:{escaped_file_target}(?:\|[^\]]*)?\]\]'
+            rf'(?<!\\)\[\[파일:{escaped_file_target}(?:\|[^\]]*)?\]\]'
         ),
         "include": re.compile(
-            rf'\[include\(\s*{escaped_document}(?:\s*,[^)]*)?\)',
+            rf'(?<!\\)\[include\(\s*{escaped_document}(?:\s*,[^)]*)?\)',
             re.IGNORECASE
         ),
     }
@@ -293,6 +293,53 @@ def get_backlinks(Document):
         namespace: sorted(items, key=lambda item: (item["title"], item["type"]))
         for namespace, items in sorted(grouped.items())
     }
+
+
+def get_missing_documents():
+    conn = sqlite3.connect(config.DB_PATH)
+    try:
+        rows = conn.execute("SELECT title, content FROM documents").fetchall()
+    finally:
+        conn.close()
+
+    existing_titles = {title for title, _ in rows}
+    missing_sources = {}
+    internal_link_pattern = re.compile(r'(?<!\\)\[\[([^\]|@]+)(?:\|[^\]]*)?\]\]')
+
+    for source_title, content in rows:
+        for match in internal_link_pattern.finditer(content or ""):
+            target = match.group(1).strip()
+            if target.startswith(":분류:"):
+                target = target[1:].strip()
+            elif target.startswith(":파일:"):
+                target = target[1:].strip()
+
+            if target.startswith("/"):
+                if not target.startswith("/w/"):
+                    continue
+                parsed_target = urllib.parse.urlsplit(target)
+                target = urllib.parse.unquote(parsed_target.path[3:]).strip()
+            elif target.startswith("#"):
+                continue
+
+            target = target.split("#", 1)[0].strip()
+            if not target or target.startswith(("http://", "https://")):
+                continue
+
+            if target not in existing_titles:
+                missing_sources.setdefault(target, set()).add(source_title)
+
+    return [
+        {
+            "title": title,
+            "sources": sorted(sources, key=str.casefold)
+        }
+        for title, sources in sorted(
+            missing_sources.items(),
+            key=lambda item: item[0].casefold()
+        )
+    ]
+
 
 # --- DB-related functions ---
 def get_db():
@@ -399,15 +446,7 @@ def is_admin_role(role):
         return False
 
     normalized = str(role).strip().lower()
-    return normalized in {
-        "admin",
-        "administrator",
-        "관리자",
-        "운영자",
-        "sysadmin",
-        "superuser",
-    }
-
+    return normalized == "admin"
 
 def get_current_user_role():
     if flask.session.get('operator_authenticated'):
@@ -476,11 +515,13 @@ def block_applies(block, endpoint, method):
     if action == "all":
         return True
     if action == "view":
-        return endpoint in {"index", "view", "search", "random_page"}
+        return endpoint in {
+            "index", "view", "search", "random_page", "needed_documents"
+        }
     if action == "edit":
         return endpoint in {
             "editing", "delete_document", "upload_image", "api_protect",
-            "discussion"
+            "discussion", "restore_revision"
         }
     if action == "login":
         return endpoint in {"login", "register"}
@@ -595,6 +636,10 @@ def view(Document):
             mode="raw",
             raw_content=content,
             version=version,
+            restore_csrf_token=flask.session.setdefault(
+                "restore_csrf_token",
+                secrets.token_urlsafe(32)
+            ),
             wiki_name=config.WIKI_NAME,
             wiki_page=config.MAIN_PAGE,
             wiki_color=config.LOGO_COLOR
@@ -988,6 +1033,10 @@ def release_block(block_id):
 @app.route("/history/<path:Document>")
 def history(Document):
     Document = prefix(Document)
+    restore_csrf_token = flask.session.setdefault(
+        "restore_csrf_token",
+        secrets.token_urlsafe(32)
+    )
 
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
@@ -1005,9 +1054,57 @@ def history(Document):
         title=Document,
         mode="history",
         history_data=rows,
+        restored_revision=flask.request.args.get("restored", type=int),
+        restore_csrf_token=restore_csrf_token,
         wiki_name=config.WIKI_NAME,
         wiki_page=config.MAIN_PAGE,
         wiki_color=config.LOGO_COLOR
+    )
+
+
+@app.route("/restore/<int:rev>/<path:Document>", methods=["POST"])
+@login_required
+def restore_revision(rev, Document):
+    Document = prefix(Document)
+    submitted_token = flask.request.form.get("csrf_token", "")
+    expected_token = flask.session.get("restore_csrf_token", "")
+    if (
+        not submitted_token
+        or not expected_token
+        or not secrets.compare_digest(submitted_token, expected_token)
+    ):
+        flask.abort(400)
+
+    current_user = flask.session.get("user")
+    is_admin = is_admin_role(get_current_user_role())
+
+    if Document.startswith("사용자:"):
+        owner_name = Document[len("사용자:"):].split("/", 1)[0]
+        if current_user != owner_name and not is_admin:
+            flask.abort(403)
+
+    conn = get_document_db()
+    try:
+        document = conn.execute(
+            "SELECT is_protected FROM documents WHERE title = ?",
+            (Document,)
+        ).fetchone()
+        if document and document["is_protected"] == 1 and not is_admin:
+            flask.abort(403)
+
+        revision = conn.execute(
+            "SELECT content FROM wiki_history WHERE title = ? AND rev = ?",
+            (Document, rev)
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if revision is None:
+        flask.abort(404)
+
+    save_document(Document, revision["content"], author=current_user)
+    return flask.redirect(
+        flask.url_for("history", Document=Document, restored=rev)
     )
 
 
@@ -1358,6 +1455,19 @@ def random_page():
         return flask.redirect(flask.url_for("index"))
 
     return flask.redirect(flask.url_for("view", Document=row[0]))
+
+
+@app.route("/NeededDocuments")
+def needed_documents():
+    return flask.render_template(
+        "index.html",
+        title="문서 작성 필요",
+        mode="needed_documents",
+        missing_documents=get_missing_documents(),
+        wiki_name=config.WIKI_NAME,
+        wiki_page=config.MAIN_PAGE,
+        wiki_color=config.LOGO_COLOR
+    )
 
 @app.route("/Sign_Up", methods=["GET", "POST"])
 def register():

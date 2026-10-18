@@ -22,6 +22,7 @@
         {% endif %}
 
         <a href="/RandomPage" class="Random">↻</a>&nbsp;
+        <a href="{{ url_for('needed_documents') }}" class="box">문서 작성 필요</a>&nbsp;
         <form action="/search">
             <input type="text" name="q" placeholder="Search wiki...">
             <button>검색</button>

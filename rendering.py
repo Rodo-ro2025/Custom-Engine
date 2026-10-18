@@ -5,22 +5,72 @@ import html
 import re
 import markdown
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 import sqlite3
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import get_lexer_by_name, get_lexer_for_filename
+from pygments.util import ClassNotFound
 
 # --- Personal Module ---
 import config
 from table import table
 
+
+@lru_cache(maxsize=1)
+def _existing_css_classes():
+    stylesheet_path = Path(__file__).resolve().parent / 'static' / 'style.css'
+    stylesheet = stylesheet_path.read_text(encoding='utf-8')
+    stylesheet = re.sub(r'/\*.*?\*/', '', stylesheet, flags=re.DOTALL)
+    selectors = re.findall(r'([^{}]+)\{[^{}]*\}', stylesheet, flags=re.DOTALL)
+    return {
+        class_match.group(1)
+        for selector_group in selectors
+        for class_match in re.finditer(
+            r'\.([A-Za-z_][A-Za-z0-9_-]*)',
+            selector_group
+        )
+    }
+
+
 def rendering(text, function=[], db_check_func=None, current_title=None, include_params=None, include_depth=0, include_stack=None, db_read_func=None):
     rendered = text
-    rendered = re.sub(r'<(?:script|style)[^>]*>.*?</(?:script|style)>', r'', rendered, flags=re.DOTALL | re.IGNORECASE)
+    syntax_blocks = []
+    syntax_marker_prefix = 'WIKISYNTAXBLOCKTOKEN'
+    while syntax_marker_prefix in rendered:
+        syntax_marker_prefix += 'X'
+
+    def restore_syntax_blocks(value, markdown_blocks=False):
+        for syntax_index, syntax_html in enumerate(syntax_blocks):
+            syntax_marker = f'{syntax_marker_prefix}{syntax_index}END'
+            replacement = (
+                f'\n\n{syntax_html}\n\n' if markdown_blocks else syntax_html
+            )
+            value = value.replace(syntax_marker, replacement)
+        return value
+
+    literal_blocks = []
+    literal_marker_prefix = 'WIKILITERALBLOCKTOKEN'
+    while literal_marker_prefix in rendered:
+        literal_marker_prefix += 'X'
+
     Secured = []
     folding_blocks = []
+    style_blocks = []
     effective_params = include_params or {}
     active_stack = list(include_stack or [])
 
     def link(t):
+        def normalize_internal_link_target(target):
+            target = target.strip()
+            if target.startswith(":분류:"):
+                return target[1:]
+            elif target.startswith(":파일:"):
+                return target[1:]
+            return target
+
         def internal_link_url(doc_name):
             if '#' in doc_name and db_check_func and db_check_func(doc_name):
                 return f'/w/{quote(doc_name, safe="/")}'
@@ -110,7 +160,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         t = re.sub(r'\[\[(https?://[^\|\]]+)(?:\|((?:(?!\]\]).)+))?\]\]', external_link_replacer, t)
 
         def internal_pipe_link_replacer(m):
-            doc_name = m.group(1).strip()
+            doc_name = normalize_internal_link_target(m.group(1))
             display_name = m.group(2).strip()
 
             if not doc_name:
@@ -187,7 +237,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         t = process_categories(t)
 
         def plain_link_replacer(m):
-            doc_name = m.group(1).strip()
+            doc_name = normalize_internal_link_target(m.group(1))
             if not doc_name:
                 return m.group(0)
 
@@ -446,7 +496,6 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         )
         t = re.sub(r'\[include\((.*?)\)\]', replace_include, t)
         t = re.sub(r'\[now\((.*?)\)\]', lambda m: (datetime.now().strftime("%Y-%m-%d %H:%M:%S") + (m.group(1) if ":" in m.group(1) else f"{m.group(1)}:00")), t)
-
         t = re.sub(r'\[now\]', datetime.now().strftime("%Y-%m-%d %H:%M:%S"), t)
         t = re.sub(r'\[anchor\((.*?)\)\]', anchor_replacer, t)
         t = re.sub(r'\[ruby\(\s*(?:text=\s*)?(.*?)\s*,\s*ruby=(.*?)(?:\s*,\s*color=(.*?))?\s*\)\]', ruby_replacer, t, flags=re.DOTALL)
@@ -454,8 +503,195 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
         return t
 
-    def brace(t):
+    def brace(t, protect_only=False):
+        def extract_syntax_blocks(value):
+            syntax_pattern = re.compile(
+                r'(?<!\\){{#syntax\s+lang\s*=\s*(?:"([^"]*)"|\'([^\']*)\')\s*}}'
+                r'(.*?){{/syntax\s*}}(?!\\)',
+                re.DOTALL | re.IGNORECASE
+            )
+
+            def replace_syntax(match):
+                language = (match.group(1) or match.group(2) or '').strip()
+                code = match.group(3)
+                if code.startswith('\r\n'):
+                    code = code[2:]
+                elif code.startswith('\n'):
+                    code = code[1:]
+                if code.endswith('\r\n'):
+                    code = code[:-2]
+                elif code.endswith('\n'):
+                    code = code[:-1]
+
+                try:
+                    language_name = language.lstrip('.')
+                    try:
+                        lexer = get_lexer_by_name(language_name)
+                    except ClassNotFound:
+                        lexer = get_lexer_for_filename(f'code.{language_name}')
+                    highlighted_code = highlight(
+                        code,
+                        lexer,
+                        HtmlFormatter(noclasses=True, nowrap=True)
+                    )
+                    if highlighted_code.endswith('\n'):
+                        highlighted_code = highlighted_code[:-1]
+                except ClassNotFound:
+                    highlighted_code = html.escape(code, quote=False)
+
+                syntax_index = len(syntax_blocks)
+                syntax_blocks.append(
+                    '<pre class="wiki-syntax" style="overflow-x: auto;">'
+                    f'<code>{highlighted_code}</code></pre>'
+                )
+                syntax_marker = f'{syntax_marker_prefix}{syntax_index}END'
+                if (
+                    'markdown' in function
+                    and function.index('markdown') < function.index('custom_grammer')
+                ):
+                    return f'\n\n{syntax_marker}\n\n'
+                return syntax_marker
+
+            return syntax_pattern.sub(replace_syntax, value)
+
+        def extract_literal_blocks(value):
+            result = []
+            cursor = 0
+
+            while True:
+                opening = value.find('{{', cursor)
+                if opening == -1:
+                    result.append(value[cursor:])
+                    break
+
+                directive = value[opening + 2:]
+                if directive.startswith(('#', '/', 'else}}')):
+                    result.append(value[cursor:opening + 2])
+                    cursor = opening + 2
+                    continue
+
+                depth = 1
+                scan = opening + 2
+                while scan < len(value):
+                    if value.startswith('{{', scan):
+                        depth += 1
+                        scan += 2
+                    elif value.startswith('}}', scan):
+                        depth -= 1
+                        if depth == 0:
+                            result.append(value[cursor:opening])
+                            literal_index = len(literal_blocks)
+                            literal_blocks.append(value[opening + 2:scan])
+                            result.append(
+                                f'{literal_marker_prefix}{literal_index}END'
+                            )
+                            cursor = scan + 2
+                            break
+                        scan += 2
+                    else:
+                        scan += 1
+                else:
+                    result.append(value[cursor:opening + 2])
+                    cursor = opening + 2
+                    continue
+
+            return ''.join(result)
+
+        if protect_only:
+            return extract_literal_blocks(extract_syntax_blocks(t))
+
         token_pattern = re.compile(r'{{#if\s*\(?(.+?)\)?}}|{{else}}|{{/if}}', re.DOTALL)
+        safe_style_properties = {
+            'background-color', 'border', 'border-bottom', 'border-bottom-color',
+            'border-bottom-left-radius', 'border-bottom-right-radius',
+            'border-bottom-style', 'border-bottom-width', 'border-color',
+            'border-left', 'border-left-color', 'border-left-style',
+            'border-left-width', 'border-radius', 'border-right',
+            'border-right-color', 'border-right-style', 'border-right-width',
+            'border-style', 'border-top', 'border-top-color',
+            'border-top-left-radius', 'border-top-right-radius',
+            'border-top-style', 'border-top-width', 'border-width', 'color',
+            'display', 'font-family', 'font-size', 'font-style', 'font-weight',
+            'height', 'letter-spacing', 'line-height', 'list-style-type',
+            'margin', 'margin-bottom', 'margin-left', 'margin-right', 'margin-top',
+            'max-height', 'max-width', 'min-height', 'min-width', 'opacity',
+            'padding', 'padding-bottom', 'padding-left', 'padding-right',
+            'padding-top', 'text-align', 'text-decoration', 'text-indent',
+            'text-transform', 'vertical-align', 'white-space', 'width',
+            'word-spacing'
+        }
+        unsafe_style_value_pattern = re.compile(
+            r'(?:url\s*\(|expression\s*\(|javascript\s*:|vbscript\s*:|'
+            r'@import\b|behavior\s*:|-moz-binding\s*:)',
+            re.IGNORECASE
+        )
+
+        def safe_style_value(value):
+            value = value.strip()
+            if (
+                not value
+                or ';' in value
+                or '\\' in value
+                or '/*' in value
+                or '*/' in value
+                or '{' in value
+                or '}' in value
+                or '<' in value
+                or '>' in value
+                or any(ord(char) < 32 for char in value)
+                or unsafe_style_value_pattern.search(value)
+            ):
+                return ''
+            return value
+
+        def safe_style_declarations(raw_style):
+            declarations = []
+            for declaration in raw_style.split(';'):
+                if ':' not in declaration:
+                    continue
+                name, value = declaration.split(':', 1)
+                name = name.strip().lower()
+                value = safe_style_value(value)
+                if name in safe_style_properties and value:
+                    declarations.append(f'{name}: {value}')
+            return '; '.join(declarations)
+
+        def safe_style_rules(raw_css):
+            rules = []
+            existing_classes = _existing_css_classes() | {'wiki-style-block'}
+            rule_pattern = re.compile(r'([^{}]+)\{([^{}]*)\}', re.DOTALL)
+            class_selector = r'\.[A-Za-z_][A-Za-z0-9_-]*'
+            selector_pattern = re.compile(
+                rf'{class_selector}(?:{class_selector})*'
+                rf'(?:\s*(?:>|\+|~)\s*{class_selector}(?:{class_selector})*'
+                rf'|\s+{class_selector}(?:{class_selector})*)*'
+            )
+
+            for match in rule_pattern.finditer(raw_css):
+                selectors = []
+                for selector in match.group(1).split(','):
+                    selector = selector.strip()
+                    class_names = re.findall(class_selector, selector)
+                    if (
+                        selector_pattern.fullmatch(selector)
+                        and class_names
+                        and all(
+                            class_name[1:] not in existing_classes
+                            for class_name in class_names
+                        )
+                    ):
+                        selectors.append(selector)
+
+                if not selectors:
+                    continue
+
+                declarations = safe_style_declarations(match.group(2))
+                if declarations:
+                    rules.append(
+                        f'{", ".join(selectors)} {{ {declarations}; }}'
+                    )
+
+            return '\n'.join(rules)
 
         def parse_color_block(text):
             pattern = re.compile(
@@ -478,6 +714,144 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             if not expr:
                 return False
 
+            def valid_parameter_name(name):
+                forbidden_names = {
+                    'title', 'true', 'false', 'yes', 'no', '1', '0',
+                    'on', 'off', 'null', 'none', 'nil'
+                }
+                allowed_pattern = re.compile(r'^[a-zA-Z가-힣_][a-zA-Z가-힣0-9_]*$')
+                return (
+                    bool(allowed_pattern.fullmatch(name))
+                    and name.lower() not in forbidden_names
+                )
+
+            def get_parameter_name(token):
+                token = token.strip()
+                if len(token) >= 2 and token[0] == token[-1] == '@':
+                    token = token[1:-1]
+                return token if valid_parameter_name(token) else None
+
+            def split_expression_parts(expression, separator):
+                parts = []
+                quote = None
+                parenthesis_depth = 0
+                bracket_depth = 0
+                start = 0
+
+                for index, char in enumerate(expression):
+                    if quote:
+                        if char == quote and expression[index - 1] != '\\':
+                            quote = None
+                        continue
+                    if char in {'"', "'"}:
+                        quote = char
+                    elif char == '(':
+                        parenthesis_depth += 1
+                    elif char == ')':
+                        parenthesis_depth -= 1
+                    elif char == '[':
+                        bracket_depth += 1
+                    elif char == ']':
+                        bracket_depth -= 1
+                    elif (
+                        char == separator
+                        and parenthesis_depth == 0
+                        and bracket_depth == 0
+                    ):
+                        parts.append(expression[start:index].strip())
+                        start = index + 1
+
+                parts.append(expression[start:].strip())
+                return parts
+
+            def parse_function_call(token):
+                quote = None
+                parenthesis_depth = 0
+                bracket_depth = 0
+
+                for index, char in enumerate(token):
+                    if quote:
+                        if char == quote and token[index - 1] != '\\':
+                            quote = None
+                        continue
+                    if char in {'"', "'"}:
+                        quote = char
+                    elif char == '(':
+                        parenthesis_depth += 1
+                    elif char == ')':
+                        parenthesis_depth -= 1
+                    elif char == '[':
+                        bracket_depth += 1
+                    elif char == ']':
+                        bracket_depth -= 1
+                    elif char == '.' and parenthesis_depth == 0 and bracket_depth == 0:
+                        method_match = re.match(
+                            r'([a-zA-Z_][a-zA-Z0-9_]*)\(',
+                            token[index + 1:]
+                        )
+                        if not method_match:
+                            continue
+
+                        method = method_match.group(1)
+                        open_index = index + 1 + method_match.end() - 1
+                        depth = 1
+                        argument_quote = None
+                        for close_index in range(open_index + 1, len(token)):
+                            current = token[close_index]
+                            if argument_quote:
+                                if (
+                                    current == argument_quote
+                                    and token[close_index - 1] != '\\'
+                                ):
+                                    argument_quote = None
+                            elif current in {'"', "'"}:
+                                argument_quote = current
+                            elif current == '(':
+                                depth += 1
+                            elif current == ')':
+                                depth -= 1
+                                if depth == 0:
+                                    if close_index == len(token) - 1:
+                                        return (
+                                            token[:index].strip(),
+                                            method.lower(),
+                                            token[open_index + 1:close_index]
+                                        )
+                                    break
+
+                return None
+
+            def parse_slice(token):
+                quote = None
+                parenthesis_depth = 0
+                bracket_start = None
+
+                for index, char in enumerate(token):
+                    if quote:
+                        if char == quote and token[index - 1] != '\\':
+                            quote = None
+                        continue
+                    if char in {'"', "'"}:
+                        quote = char
+                    elif char == '(':
+                        parenthesis_depth += 1
+                    elif char == ')':
+                        parenthesis_depth -= 1
+                    elif char == '[' and parenthesis_depth == 0:
+                        bracket_start = index
+                    elif (
+                        char == ']'
+                        and parenthesis_depth == 0
+                        and bracket_start is not None
+                        and index == len(token) - 1
+                    ):
+                        return (
+                            token[:bracket_start].strip(),
+                            token[bracket_start + 1:index]
+                        )
+
+                return None
+
             if expr.startswith('!'):
                 return not evaluate_condition(expr[1:].strip())
 
@@ -493,111 +867,307 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 if len(token) >= 2 and token[0] == token[-1] and token[0] in {'"', "'"}:
                     return token[1:-1]
 
-                rendering_match = re.fullmatch(r'(.+?)\.rendering\((.*)\)', token, re.DOTALL | re.IGNORECASE)
-                if rendering_match:
-                    arguments = rendering_match.group(2).split(',', 1)
-                    if len(arguments) == 2:
-                        source = resolve_token(rendering_match.group(1))
+                function_call = parse_function_call(token)
+                if function_call is not None:
+                    source_expr, method, arguments_expr = function_call
+                    arguments = split_expression_parts(arguments_expr, ',')
+                    source = resolve_token(source_expr)
+                    source = '' if source is None else str(source)
 
-                        def resolve_argument(argument):
-                            arg = argument.strip()
-                            if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in {'"', "'"}:
-                                return arg[1:-1]
-                            return resolve_token(arg)
+                    if method == 'split' and len(arguments) == 2:
+                        separator = resolve_token(arguments[0])
+                        count = resolve_token(arguments[1])
+                        if separator is not None:
+                            separator = str(separator)
+                        try:
+                            count = int(count)
+                        except (ValueError, TypeError, OverflowError):
+                            return token
 
-                        original = resolve_argument(arguments[0])
-                        replacement = resolve_argument(arguments[1])
-                        source = '' if source is None else str(source)
+                        if separator:
+                            positions = []
+                            search_from = 0
+                            while True:
+                                position = source.find(separator, search_from)
+                                if position == -1:
+                                    break
+                                positions.append(position + len(separator))
+                                search_from = position + len(separator)
+
+                            if count > 0 and count <= len(positions):
+                                return positions[count - 1]
+                            if count < 0 and -count <= len(positions):
+                                return positions[count]
+                            return 0
+
+                    if method == 'rendering' and len(arguments) == 2:
+                        original = resolve_token(arguments[0])
+                        replacement = resolve_token(arguments[1])
                         original = '' if original is None else str(original)
                         replacement = '' if replacement is None else str(replacement)
                         return source.replace(original, replacement)
 
-                token = re.sub(r'@([^@\s]+)@', lambda m: str(effective_params.get(m.group(1), '')), token)
-                if token in effective_params:
+                slice_expr = parse_slice(token)
+                if slice_expr is not None:
+                    source_expr, indices_expr = slice_expr
+                    slice_parts = split_expression_parts(indices_expr, ':')
+                    if len(slice_parts) in {2, 3}:
+                        indices = []
+                        valid_indices = True
+                        for part in slice_parts:
+                            if not part:
+                                indices.append(None)
+                                continue
+                            index_value = resolve_token(part)
+                            try:
+                                indices.append(int(index_value))
+                            except (ValueError, TypeError, OverflowError):
+                                valid_indices = False
+                                break
+
+                        if valid_indices:
+                            source = resolve_token(source_expr)
+                            source = '' if source is None else str(source)
+                            return source[slice(*indices)]
+
+                def replace_parameter(match):
+                    name = match.group(1)
+                    if valid_parameter_name(name):
+                        return str(effective_params.get(name, ''))
+                    return match.group(0)
+
+                token = re.sub(r'@([^@\s]+)@', replace_parameter, token)
+                if valid_parameter_name(token) and token in effective_params:
                     return str(effective_params[token])
                 lowered = token.lower()
                 if lowered in {'true', 'yes', '1', 'on'}:
                     return True
                 if lowered in {'false', 'no', '0', 'off', 'null', 'none', 'nil'}:
                     return None
+                if lowered == 'title':
+                    return current_title or ''
                 return token
+
+            def split_ternary(expression):
+                quote = None
+                depth = 0
+                bracket_depth = 0
+                question_index = None
+
+                for index, char in enumerate(expression):
+                    if quote:
+                        if char == quote and (index == 0 or expression[index - 1] != '\\'):
+                            quote = None
+                        continue
+                    if char in {'"', "'"}:
+                        quote = char
+                    elif char == '(':
+                        depth += 1
+                    elif char == ')':
+                        depth -= 1
+                    elif char == '[':
+                        bracket_depth += 1
+                    elif char == ']':
+                        bracket_depth -= 1
+                    elif char == '?' and depth == 0 and bracket_depth == 0:
+                        question_index = index
+                        break
+
+                if question_index is None:
+                    return None
+
+                quote = None
+                depth = 0
+                bracket_depth = 0
+                nested_questions = 0
+                for index in range(question_index + 1, len(expression)):
+                    char = expression[index]
+                    if quote:
+                        if char == quote and expression[index - 1] != '\\':
+                            quote = None
+                        continue
+                    if char in {'"', "'"}:
+                        quote = char
+                    elif char == '(':
+                        depth += 1
+                    elif char == ')':
+                        depth -= 1
+                    elif char == '[':
+                        bracket_depth += 1
+                    elif char == ']':
+                        bracket_depth -= 1
+                    elif depth == 0 and bracket_depth == 0 and char == '?':
+                        nested_questions += 1
+                    elif depth == 0 and bracket_depth == 0 and char == ':':
+                        if nested_questions:
+                            nested_questions -= 1
+                        else:
+                            return (
+                                expression[:question_index].strip(),
+                                expression[question_index + 1:index].strip(),
+                                expression[index + 1:].strip()
+                            )
+
+                return None
+
+            def resolve_ternary_value(expression):
+                parts = split_ternary(expression)
+                if parts is None:
+                    return None
+
+                condition, true_value, false_value = parts
+                selected_value = (
+                    true_value if evaluate_condition(condition) else false_value
+                )
+                nested_parts = split_ternary(selected_value)
+                if nested_parts is not None:
+                    return resolve_ternary_value(selected_value)
+                if re.search(r'==|!=|>=|<=|>|<', selected_value):
+                    return evaluate_condition(selected_value)
+                return resolve_token(selected_value)
+
+            def compare_condition_chain(comparison_expr):
+                operator_pattern = re.compile(r'==|!=|>=|<=|>|<')
+                operator_matches = list(operator_pattern.finditer(comparison_expr))
+                if not operator_matches:
+                    return None
+
+                operands = []
+                operators = []
+                start = 0
+                for match in operator_matches:
+                    operands.append(comparison_expr[start:match.start()].strip())
+                    operators.append(match.group())
+                    start = match.end()
+                operands.append(comparison_expr[start:].strip())
+
+                if any(not operand for operand in operands):
+                    return False
+
+                def is_empty_value(value):
+                    return value is None or value is False or value == ''
+
+                for operand in operands:
+                    if (
+                        not (
+                            len(operand) >= 2
+                            and operand[0] == operand[-1]
+                            and operand[0] in {'"', "'"}
+                        )
+                        and re.search(r'[=!<>]', operand)
+                    ):
+                        return False
+
+                left_value = resolve_token(operands[0])
+                for index, (operator, right) in enumerate(zip(operators, operands[1:])):
+                    right_value = resolve_token(right)
+                    try:
+                        left_num = float(left_value)
+                        right_num = float(right_value)
+                        if operator == '==':
+                            result = left_num == right_num
+                        elif operator == '!=':
+                            result = left_num != right_num
+                        elif operator == '>=':
+                            result = left_num >= right_num
+                        elif operator == '<=':
+                            result = left_num <= right_num
+                        elif operator == '>':
+                            result = left_num > right_num
+                        else:
+                            result = left_num < right_num
+                    except (ValueError, TypeError, OverflowError):
+                        if operator == '==':
+                            result = (
+                                left_value == right_value
+                                or (
+                                    is_empty_value(left_value)
+                                    and is_empty_value(right_value)
+                                )
+                            )
+                        elif operator == '!=':
+                            if right_value is None:
+                                parameter_name = get_parameter_name(
+                                    operands[index]
+                                )
+                                is_parameter = (
+                                    parameter_name in effective_params
+                                    if parameter_name is not None
+                                    else False
+                                )
+                                if is_parameter or operands[index] == 'title':
+                                    result = not is_empty_value(left_value)
+                                else:
+                                    result = False
+                            else:
+                                result = not (
+                                    left_value == right_value
+                                    or (
+                                        is_empty_value(left_value)
+                                        and is_empty_value(right_value)
+                                    )
+                                )
+                        elif operator == '>=':
+                            if isinstance(left_value, str) and isinstance(right_value, str):
+                                result = left_value >= right_value
+                            else:
+                                result = False
+                        elif operator == '<=':
+                            if isinstance(left_value, str) and isinstance(right_value, str):
+                                result = left_value <= right_value
+                            else:
+                                result = False
+                        elif operator == '>':
+                            if isinstance(left_value, str) and isinstance(right_value, str):
+                                result = left_value > right_value
+                            else:
+                                result = False
+                        else:
+                            if isinstance(left_value, str) and isinstance(right_value, str):
+                                result = left_value < right_value
+                            else:
+                                result = False
+
+                    if not result:
+                        return False
+                    left_value = right_value
+                return True
 
             lowered = expr.lower()
             if lowered in {'true', 'yes', '1', 'on'}:
                 return True
             if lowered in {'false', 'no', '0', 'off'}:
                 return False
+            if lowered == 'title':
+                return bool(current_title or '')
 
-            operator_matches = []
-            for operator in ('==', '!=', '>=', '<=', '>', '<'):
-                if operator in expr:
-                    operator_matches.append(operator)
-
-            if operator_matches:
-                operator = sorted(operator_matches, key=len, reverse=True)[0]
-                left, right = expr.split(operator, 1)
-                left = left.strip()
-                right = right.strip()
-
-                if left == 'title':
-                    left_value = current_title or ''
-                else:
-                    left_value = left
-
-                if right == 'title':
-                    right_value = current_title or ''
-                else:
-                    right_value = right
-
-                left_value = resolve_token(left_value)
-                right_value = resolve_token(right_value)
-
-                try:
-                    left_num = float(left_value)
-                    right_num = float(right_value)
-                    if operator == '==':
-                        return left_num == right_num
-                    if operator == '!=':
-                        return left_num != right_num
-                    if operator == '>=':
-                        return left_num >= right_num
-                    if operator == '<=':
-                        return left_num <= right_num
-                    if operator == '>':
-                        return left_num > right_num
-                    if operator == '<':
-                        return left_num < right_num
-                except (ValueError, TypeError):
-                    if operator == '==':
-                        return left_value == right_value
-                    if operator == '!=':
-                        if right_value is None:
-                            is_parameter = (
-                                left in effective_params
-                                or re.fullmatch(r'@([^@\s]+)@', left) is not None
-                            )
-                            if is_parameter or left == 'title':
-                                return left_value is not None and left_value != ''
-                            return False
-                        return left_value != right_value
-                    if operator == '>=':
-                        return left_value >= right_value
-                    if operator == '<=':
-                        return left_value <= right_value
-                    if operator == '>':
-                        return left_value > right_value
-                    if operator == '<':
-                        return left_value < right_value
-
-            if expr.count('=') == 1:
-                name, value_expr = expr.split('=', 1)
+            assignment_matches = list(re.finditer(r'(?<![=!<>])=(?!=)', expr))
+            if len(assignment_matches) == 1:
+                assignment_match = assignment_matches[0]
+                name = expr[:assignment_match.start()]
+                value_expr = expr[assignment_match.end():]
                 name = name.strip()
                 if name.startswith('@') and name.endswith('@'):
                     name = name[1:-1]
-                if re.fullmatch(r'[^@\s]+', name):
-                    value = resolve_token(value_expr.strip())
+                if valid_parameter_name(name):
+                    value_expr = value_expr.strip()
+                    if split_ternary(value_expr) is not None:
+                        value = resolve_ternary_value(value_expr)
+                    elif re.search(r'==|!=|>=|<=|>|<', value_expr):
+                        value = evaluate_condition(value_expr)
+                    else:
+                        value = resolve_token(value_expr)
                     effective_params[name] = '' if value is None else str(value)
-                    return True
+                    return bool(effective_params[name])
+
+            ternary_parts = split_ternary(expr)
+            if ternary_parts is not None:
+                ternary_value = resolve_ternary_value(expr)
+                return bool(ternary_value)
+
+            comparison_result = compare_condition_chain(expr)
+            if comparison_result is not None:
+                return comparison_result
 
             if re.fullmatch(r'.+\.rendering\(.*\)', expr, re.DOTALL | re.IGNORECASE):
                 return bool(resolve_token(expr))
@@ -605,31 +1175,43 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             if expr in effective_params:
                 return bool(effective_params[expr])
 
-            if db_check_func and db_check_func(expr):
-                return True
-
             return False
 
         def process_text(text):
             result = []
             last_pos = 0
-            wiki_block_pattern = re.compile(r'{{#wiki\s*style\s*=\s*"([^"]*)"}}', re.DOTALL)
+            wiki_block_pattern = re.compile(
+                r'{{#wiki(?:\s+[^{}]*?)?\s*}}',
+                re.DOTALL | re.IGNORECASE
+            )
+            style_block_pattern = re.compile(
+                r'{{#style\s*}}',
+                re.IGNORECASE
+            )
 
             while True:
                 match = token_pattern.search(text, last_pos)
                 wiki_match = wiki_block_pattern.search(text, last_pos)
-                if not match and not wiki_match:
+                style_match = style_block_pattern.search(text, last_pos)
+                if not match and not wiki_match and not style_match:
                     result.append(text[last_pos:])
                     break
 
                 next_match = min(
-                    (candidate for candidate in (match, wiki_match) if candidate),
+                    (
+                        candidate for candidate in (match, wiki_match, style_match)
+                        if candidate
+                    ),
                     key=lambda candidate: candidate.start()
                 )
 
-                if next_match is wiki_match:
-                    rendered_block, next_pos = parse_wiki_block(text, wiki_match.start())
-                    result.append(text[last_pos:wiki_match.start()])
+                if next_match is wiki_match or next_match is style_match:
+                    rendered_block, next_pos = parse_style_block(
+                        text,
+                        next_match.start(),
+                        'wiki' if next_match is wiki_match else 'style'
+                    )
+                    result.append(text[last_pos:next_match.start()])
                     result.append(rendered_block)
                     last_pos = next_pos
                 else:
@@ -703,22 +1285,89 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
             return process_text(branch_text), close_end or len(text)
 
-        def parse_wiki_block(text, start_idx):
-            opening_match = re.match(r'{{#wiki\s*style\s*=\s*"([^"]*)"}}', text[start_idx:], re.DOTALL)
+        def parse_style_block(text, start_idx, block_name):
+            opening_match = re.match(
+                r'{{#style\s*}}' if block_name == 'style' else
+                r'{{#wiki(?:\s+([^{}]*?))?\s*}}',
+                text[start_idx:],
+                re.DOTALL | re.IGNORECASE
+            )
             if not opening_match:
                 return '', start_idx + 1
 
-            style_value = opening_match.group(1).strip()
+            attributes = {}
+            if block_name == 'wiki':
+                raw_attributes = opening_match.group(1) or ''
+                attribute_pattern = re.compile(
+                    r'([A-Za-z_:][\w:.-]*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s]+))'
+                )
+                for attribute_match in attribute_pattern.finditer(raw_attributes):
+                    name = attribute_match.group(1).lower()
+                    value = next(
+                        value for value in attribute_match.groups()[1:]
+                        if value is not None
+                    )
+                    attributes[name] = value.strip()
+
+            style_declarations = []
+            if block_name == 'wiki' and attributes.get('class'):
+                classes = ['wiki-style-block', attributes['class']]
+            else:
+                classes = ['wiki-style-block'] if block_name == 'wiki' else []
+
+            if 'style' in attributes:
+                style_declarations.append(
+                    safe_style_declarations(attributes['style'])
+                )
             content_start = start_idx + opening_match.end()
-            close_pattern = re.compile(r'{{/wiki}}', re.DOTALL)
-            close_match = close_pattern.search(text, content_start)
-            if not close_match:
+            opening_pattern = re.compile(
+                r'{{#style\s*}}' if block_name == 'style' else
+                r'{{#wiki(?:\s+[^{}]*?)?\s*}}',
+                re.DOTALL | re.IGNORECASE
+            )
+            closing_pattern = re.compile(
+                rf'{{{{/{block_name}\s*}}}}',
+                re.IGNORECASE
+            )
+            depth = 1
+            search_pos = content_start
+            close_match = None
+
+            while depth:
+                next_open = opening_pattern.search(text, search_pos)
+                next_close = closing_pattern.search(text, search_pos)
+                if not next_close:
+                    break
+
+                if next_open and next_open.start() < next_close.start():
+                    depth += 1
+                    search_pos = next_open.end()
+                else:
+                    depth -= 1
+                    close_match = next_close
+                    search_pos = next_close.end()
+
+            if depth:
                 return process_text(text[content_start:]), len(text)
 
             inner_text = text[content_start:close_match.start()]
+            if block_name == 'style':
+                rules = safe_style_rules(inner_text)
+                style_html = f'<style>\n{rules}\n</style>' if rules else ''
+                style_index = len(style_blocks)
+                style_blocks.append(style_html)
+                return f'\x00WIKI_STYLE_BLOCK_{style_index}\x00', close_match.end()
+
             rendered_inner = process_text(inner_text)
-            style_attr = f' style="{html.escape(style_value)}"' if style_value else ''
-            return f'<div class="wiki-style-block"{style_attr}>{rendered_inner}</div>', close_match.end()
+            opening_tag = '<div'
+            if classes:
+                opening_tag += f' class="{html.escape(" ".join(classes), quote=True)}"'
+            style_value = '; '.join(
+                declaration for declaration in style_declarations if declaration
+            )
+            if style_value:
+                opening_tag += f' style="{html.escape(style_value, quote=True)}"'
+            return f'{opening_tag}>{rendered_inner}</div>', close_match.end()
 
         rendered = process_text(t)
         rendered = parse_color_block(rendered)
@@ -732,8 +1381,8 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             stripped = text.strip()
             if stripped.startswith('* '):
                 return 'ul', stripped[2:].strip(), None
-            if re.match(r'^\d+\.\s+', stripped):
-                return 'ol', re.sub(r'^\d+\.\s*', '', stripped), None
+            if re.match(r'^1\.\s+', stripped):
+                return 'ol', re.sub(r'^1\.\s*', '', stripped), None
             if re.match(r'^[a-zA-Z]\.\s+', stripped):
                 kind = 'a' if re.match(r'^[a-zA-Z]\.\s+', stripped).group(0)[0].lower() == 'a' else 'i'
                 return 'ol', re.sub(r'^[a-zA-Z]\.\s*', '', stripped), kind
@@ -885,6 +1534,12 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         return re.sub(pattern, _wrap, t, flags=re.MULTILINE)
 
     def line_breaks(t):
+        style_pattern = re.compile(
+            r'<style\b[^>]*>.*?</style\s*>',
+            re.DOTALL | re.IGNORECASE
+        )
+        style_matches = iter(style_pattern.finditer(t))
+        style_match = next(style_matches, None)
         inline_tag_names = {
             'a', 'abbr', 'acronym', 'b', 'bdi', 'bdo', 'big', 'br', 'button', 'cite',
             'code', 'data', 'del', 'dfn', 'em', 'font', 'i', 'img', 'input', 'kbd',
@@ -915,6 +1570,12 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         result = []
         i = 0
         while i < len(t):
+            if style_match and i == style_match.start():
+                result.append(style_match.group(0))
+                i = style_match.end()
+                style_match = next(style_matches, None)
+                continue
+
             ch = t[i]
             if ch != '\n':
                 result.append(ch)
@@ -1001,16 +1662,36 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
         return ''.join(result)
 
+    preprocessing_done = False
+    custom_grammar_processed = False
+
     for f in function:
+        if not preprocessing_done:
+            if 'custom_grammer' in function:
+                rendered = brace(rendered, protect_only=True)
+            rendered = re.sub(
+                r'<(?:script|style)[^>]*>.*?</(?:script|style)>',
+                r'',
+                rendered,
+                flags=re.DOTALL | re.IGNORECASE
+            )
+            preprocessing_done = True
+
         if f == "markdown":
+            if custom_grammar_processed:
+                rendered = restore_syntax_blocks(rendered, markdown_blocks=True)
             rendered = markdown.markdown(
                 rendered,
                 extensions=["extra", "codehilite", "nl2br", "md_in_html", "toc"]
             )
 
-        elif f == "ourwiki":
+        elif f == "custom_grammer":
+            custom_grammar_processed = True
             if config.SAFE_HTML:
                 rendered = html.escape(rendered)
+
+            rendered = re.sub(r'\\(.*?)\\', lambda m: ''.join(f'&#{ord(c)};' for c in m.group(1)), rendered)
+            rendered = re.sub(r'^//\s*(.*?)$', '', rendered, flags=re.MULTILINE)
 
             footnotes = []
 
@@ -1027,9 +1708,6 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             )
 
             rendered = extract_folding_blocks(rendered)
-
-            rendered = re.sub(r'\\(.*?)\\', lambda m: ''.join(f'&#{ord(c)};' for c in m.group(1)), rendered)
-            rendered = re.sub(r'^//\s*(.*?)$', '', rendered, flags=re.MULTILINE)
 
             rendered = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', rendered)
             rendered = re.sub(r'\*(.+?)\*', r'<em>\1</em>', rendered)
@@ -1063,6 +1741,12 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
             rendered = re.sub(r'\[br\]', r'<br>', rendered, flags=re.MULTILINE)
             rendered = line_breaks(rendered)
+
+            for index, style_html in enumerate(style_blocks):
+                rendered = rendered.replace(
+                    f'\x00WIKI_STYLE_BLOCK_{index}\x00',
+                    style_html
+                )
 
             for number, content in enumerate(footnotes, start=1):
                 tooltip_content = rendering(
@@ -1116,5 +1800,32 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
         else:
             continue
+
+    if not preprocessing_done:
+        rendered = re.sub(
+            r'<\s*(?:script|style)[^>]*>.*?</\s*(?:script|style)\s*>',
+            r'',
+            rendered,
+            flags=re.DOTALL | re.IGNORECASE
+        )
+
+    for literal_index, literal_text in enumerate(literal_blocks):
+        literal_html = (
+            '<span style="white-space: pre-wrap;">'
+            f'{html.escape(literal_text, quote=False)}</span>'
+        )
+        rendered = rendered.replace(
+            f'{literal_marker_prefix}{literal_index}END',
+            literal_html
+        )
+
+    for syntax_index, syntax_html in enumerate(syntax_blocks):
+        syntax_marker = f'{syntax_marker_prefix}{syntax_index}END'
+        rendered = re.sub(
+            rf'<p>\s*{re.escape(syntax_marker)}\s*</p>',
+            lambda _: syntax_html,
+            rendered
+        )
+    rendered = restore_syntax_blocks(rendered)
 
     return rendered

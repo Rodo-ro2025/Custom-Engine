@@ -13,14 +13,17 @@ STYLE_TAGS = {
     'tablebgcolor',
     'tablecolor',
     'tablebordercolor',
+    'tabletextalign',
     'tablewidth',
     'bgcolor',
     'color',
     'width',
     'rowbgcolor',
     'rowcolor',
+    'rowtextalign',
     'colbgcolor',
     'colcolor',
+    'coltextalign',
     'textalign',
 }
 
@@ -97,8 +100,7 @@ def _style_from_tag(tag, value, scope):
                 style_map['margin-right'] = 'auto'
             elif normalized == 'right':
                 style_map['float'] = 'right'
-                style_map['width'] = 'auto'
-                style_map['margin-left'] = '12px'
+                style_map['margin-left'] = 'auto'
                 style_map['margin-right'] = '0'
             else:
                 style_map['margin-left'] = '0'
@@ -113,6 +115,8 @@ def _style_from_tag(tag, value, scope):
             _apply_style(style_map, 'border-width', '1px')
         elif tag == 'tablewidth':
             _apply_style(style_map, 'width', value)
+        elif tag == 'tabletextalign':
+            _apply_style(style_map, 'text-align', value)
 
     elif scope == 'cell':
         if tag == 'bgcolor':
@@ -129,12 +133,16 @@ def _style_from_tag(tag, value, scope):
             _apply_style(style_map, 'background-color', value)
         elif tag == 'rowcolor':
             _apply_style(style_map, 'color', value)
+        elif tag == 'rowtextalign':
+            _apply_style(style_map, 'text-align', value)
 
     elif scope == 'col':
         if tag == 'colbgcolor':
             _apply_style(style_map, 'background-color', value)
         elif tag == 'colcolor':
             _apply_style(style_map, 'color', value)
+        elif tag == 'coltextalign':
+            _apply_style(style_map, 'text-align', value)
 
     return style_map
 
@@ -192,9 +200,9 @@ def table(t):
                             table_styles.update(_style_from_tag(tag, value, 'table'))
                         elif tag in {'bgcolor', 'color', 'width', 'textalign'}:
                             cell_style_map.update(_style_from_tag(tag, value, 'cell'))
-                        elif tag in {'rowbgcolor', 'rowcolor'}:
+                        elif tag in {'rowbgcolor', 'rowcolor', 'rowtextalign'}:
                             row_styles.update(_style_from_tag(tag, value, 'row'))
-                        elif tag in {'colbgcolor', 'colcolor'}:
+                        elif tag in {'colbgcolor', 'colcolor', 'coltextalign'}:
                             if len(col_styles) <= cell_index:
                                 col_styles.extend([{}] * (cell_index - len(col_styles) + 1))
                             col_styles[cell_index].update(_style_from_tag(tag, value, 'col'))
@@ -231,6 +239,8 @@ def table(t):
                             current_col += 1
 
                         merged_style = {}
+                        if 'text-align' in table_styles:
+                            merged_style['text-align'] = table_styles['text-align']
                         if current_col < len(col_styles):
                             merged_style.update(col_styles[current_col])
                         if row_style_map:

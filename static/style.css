@@ -891,3 +891,129 @@ blockquote {
 .wiki-diff-table .diff_chg {
     background-color: #fef3c7;
 }
+
+.wiki-needed-document-list {
+    list-style: none;
+    padding: 0;
+    margin: 20px 0;
+}
+
+.wiki-needed-document-list > li {
+    background-color: #ffffff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    transition: all 0.2s ease;
+}
+
+.wiki-needed-document-list > li:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.wiki-needed-document-list > li > a {
+    font-size: 16px;
+    font-weight: 600;
+    color: #d32f2f;
+    text-decoration: none;
+}
+
+.wiki-needed-document-list > li > a:hover {
+    text-decoration: underline;
+}
+
+.wiki-needed-document-list details {
+    margin-top: 8px;
+    font-size: 14px;
+    color: #64748b;
+}
+
+.wiki-needed-document-list summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: #475569;
+    user-select: none;
+}
+
+.wiki-needed-document-list summary:hover {
+    color: #1e293b;
+}
+
+.wiki-needed-document-list details ul {
+    margin-top: 6px;
+    margin-left: 20px;
+    padding-left: 0;
+    list-style-type: disc;
+}
+
+.wiki-needed-document-list details ul li {
+    margin-bottom: 4px;
+}
+
+.wiki-needed-document-list details ul li a {
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.wiki-needed-document-list details ul li a:hover {
+    text-decoration: underline;
+}
+
+pre.wiki-syntax {
+    box-sizing: border-box;
+    max-width: 100%;
+    margin: 1.5em 0;
+    padding: 20px 22px;
+    overflow-x: auto;
+    border: 1px solid #303b4b;
+    border-left: 4px solid #60a5fa;
+    border-radius: 12px;
+    background:
+        radial-gradient(ellipse at top left, rgba(59, 130, 246, 0.12), transparent 50%),
+        linear-gradient(145deg, #18212f, #111827 72%);
+    box-shadow:
+        0 12px 28px rgba(15, 23, 42, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    font-family: 'Fira Code', 'Cascadia Code', Consolas, Monaco, 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.75;
+    tab-size: 4;
+    scrollbar-color: #526176 #18212f;
+    scrollbar-width: thin;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+pre.wiki-syntax:hover {
+    border-color: #475569;
+    border-left-color: #93c5fd;
+    box-shadow:
+        0 16px 34px rgba(15, 23, 42, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+pre.wiki-syntax code {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    background: transparent;
+    padding: 0;
+    white-space: inherit;
+}
+
+pre.wiki-syntax::selection,
+pre.wiki-syntax code::selection,
+pre.wiki-syntax code span::selection {
+    background: rgba(96, 165, 250, 0.35);
+}
+
+@media (max-width: 600px) {
+    pre.wiki-syntax {
+        margin: 1.2em 0;
+        padding: 16px;
+        border-radius: 9px;
+        font-size: 13px;
+    }
+}

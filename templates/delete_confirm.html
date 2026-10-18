@@ -22,6 +22,7 @@
                     <a href="/Revisit" class="box">로그인</a>
                 {% endif %}
                 <a href="/RandomPage" class="box">무작위 문서</a>
+                <a href="{{ url_for('needed_documents') }}" class="box">문서 작성 필요</a>
             </div>
         </details>
 
@@ -47,5 +48,6 @@
             <a href="/w/{{ document_title }}" class="Shortcut">취소하고 돌아가기</a>
         </form>
     </div>
+    {{ footer_content|safe }}
 </body>
 </html>

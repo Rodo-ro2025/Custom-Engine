@@ -19,7 +19,7 @@ SAFE_HTML = False
 ALLOWED_IMAGE_EXTENSIONS = {"avif", "bmp", "gif", "jfif", "jpeg", "jpg", "png", "webp"}
 
 # --- Free editing ---
-WIKI_NAME = "RMLWIKI"
+WIKI_NAME = "MYWIKI"
 MAIN_PAGE = f"{WIKI_NAME}:대문"
 LOGO_COLOR = "white"
 
@@ -28,7 +28,7 @@ STRIKETHROUGH = True
 QUICK_EXECUTION = False
 STUB_LENGTH = 150
 
-RENDERING_LIST = ["ourwiki"]
+RENDERING_LIST = ["custom_grammer"]
 NAMESPACE_LIST = ["분류", "틀", "템플릿", "파일", WIKI_NAME, "사용자"]
 
 FOLDING_STANDARD_TEXT = "펼치기 · 접기"

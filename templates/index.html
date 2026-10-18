@@ -35,6 +35,7 @@
                 <a href="{{ url_for('discussion', Document=title) }}" class="box">토론</a>
                 <a href="{{ url_for('backlink', Document=title) }}" class="box">역링크</a>
                 <a href="/RandomPage" class="box">무작위 문서</a>
+                <a href="{{ url_for('needed_documents') }}" class="box">문서 작성 필요</a>
             </div>
         </details>
 
@@ -64,6 +65,12 @@
             <h1>{{ title }} (RAW r{{ version }})</h1>
             <textarea id="raw-document-content" class="wiki-raw-source" readonly>{{ raw_content }}</textarea>
             <button type="button" class="wiki-version-copy" data-copy-target="raw-document-content">전체 복사</button>
+            {% if session.get('user') %}
+                <form method="post" action="{{ url_for('restore_revision', rev=version, Document=title) }}" style="display: inline;" onsubmit="return confirm('r{{ version }}의 내용으로 문서를 되돌리시겠습니까? 현재 내용은 새 리비전으로 보존됩니다.');">
+                    <input type="hidden" name="csrf_token" value="{{ restore_csrf_token }}">
+                    <button type="submit">이 리비전으로 문서 되돌리기</button>
+                </form>
+            {% endif %}
         {% elif mode == "edit" %}
             <h1>{{ title }} (편집)</h1>
             <form method='post' id="document-edit-form">
@@ -72,6 +79,9 @@
             </form>
         {% elif mode == "history" %}
             <h1>{{ title }} (역사)</h1>
+            {% if restored_revision %}
+                <p role="status">r{{ restored_revision }}의 내용으로 새 리비전을 생성했습니다.</p>
+            {% endif %}
             {% if history_data %}
                 <table class="wiki-history-table" border="2">
                     <thead>
@@ -81,6 +91,9 @@
                             <th>수정 시간</th>
                             <th>글자 수</th>
                             <th>원문</th>
+                            {% if session.get('user') %}
+                                <th>작업</th>
+                            {% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -100,6 +113,14 @@
                                 <button type="button" class="wiki-version-copy" data-copy-target="history-revision-{{ row[0] }}">전체 복사</button>
                                 <textarea id="history-revision-{{ row[0] }}" class="wiki-history-source" readonly>{{ row[4] }}</textarea>
                             </td>
+                            {% if session.get('user') %}
+                                <td>
+                                    <form method="post" action="{{ url_for('restore_revision', rev=row[0], Document=title) }}" onsubmit="return confirm('r{{ row[0] }}의 내용으로 문서를 되돌리시겠습니까? 현재 내용은 새 리비전으로 보존됩니다.');">
+                                        <input type="hidden" name="csrf_token" value="{{ restore_csrf_token }}">
+                                        <button type="submit">해당 리비전으로 문서 되돌리기</button>
+                                    </form>
+                                </td>
+                            {% endif %}
                         </tr>
                     {% endfor %}
                     </tbody>
@@ -136,6 +157,28 @@
                 {% endfor %}
             {% else %}
                 <p>이 문서를 가리키는 역링크가 없습니다.</p>
+            {% endif %}
+        {% elif mode == "needed_documents" %}
+            <h1>문서 작성 필요</h1>
+            <p>위키 문서에서 연결했지만 아직 작성되지 않은 문서입니다.</p>
+            {% if missing_documents %}
+                <ul class="wiki-needed-document-list">
+                {% for item in missing_documents %}
+                    <li>
+                        <a href="{{ url_for('editing', Document=item.title) }}">{{ item.title }}</a>
+                        <details>
+                            <summary>링크한 문서 {{ item.sources|length }}개</summary>
+                            <ul>
+                            {% for source in item.sources %}
+                                <li><a href="{{ url_for('view', Document=source) }}">{{ source }}</a></li>
+                            {% endfor %}
+                            </ul>
+                        </details>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p>작성할 문서가 없습니다.</p>
             {% endif %}
         {% elif mode == "admin" %}
             <h1>{{ title }}</h1>

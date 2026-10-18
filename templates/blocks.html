@@ -10,6 +10,7 @@
     <div class="menu">
         <a href="{{ url_for('view', Document=wiki_page) }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
         <a href="{{ url_for('view', Document=wiki_page) }}" class="box">위키로 돌아가기</a>&nbsp;
+        <a href="{{ url_for('needed_documents') }}" class="box">문서 작성 필요</a>&nbsp;
         <a href="{{ url_for('logout') }}" class="box">로그아웃</a>
     </div>
     <main class="container">
@@ -99,6 +100,7 @@
         {% else %}
             <p>등록된 차단이 없습니다.</p>
         {% endif %}
+        {{ footer_content|safe }}
     </main>
 </body>
 </html>
