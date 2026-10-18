@@ -15,7 +15,7 @@ HOST = "0.0.0.0"
 PORT = 5000
 
 IMAGE = "image"
-SAFE_HTML = False
+SAFE_HTML = True
 ALLOWED_IMAGE_EXTENSIONS = {"avif", "bmp", "gif", "jfif", "jpeg", "jpg", "png", "webp"}
 
 # --- Free editing ---
