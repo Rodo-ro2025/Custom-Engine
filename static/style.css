@@ -21,6 +21,17 @@ body {
     box-sizing: border-box;
 }
 
+.container img {
+    max-width: 100%;
+    height: auto;
+}
+
+.container iframe {
+    max-width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+}
+
 .menu {
     width: 100%;
     background-color: #24292e;

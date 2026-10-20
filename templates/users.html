@@ -11,12 +11,19 @@
     <div class="menu">
         <a href="/w/{{ wiki_page }}" style="text-decoration: none; color: {{ wiki_color or 'white' }};"><b>{{ wiki_name or 'WIKI' }}</b></a>
         <a href="/w/{{ wiki_page }}" class="box">위키로 돌아가기</a>&nbsp;
-        <a href="{{ url_for('manage_blocks') }}" class="box">차단 관리</a>&nbsp;
-        <form method="post" action="{{ url_for('operator_resignation') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="box" type="submit">운영자 사퇴</button>
-        </form>&nbsp;
-        <a href="/Logout" class="box">로그아웃</a>&nbsp;
+        <details class="menu-more">
+            <summary>더보기</summary>
+            <div class="menu-more-panel">
+                <a href="{{ url_for('manage_blocks') }}" class="box">차단 관리</a>
+                <form method="post" action="{{ url_for('operator_resignation') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="box" type="submit">운영자 사퇴</button>
+                </form>
+                <a href="/Logout" class="box">로그아웃</a>
+                <a href="/RandomPage" class="box">무작위 문서</a>
+                <a href="{{ url_for('needed_documents') }}" class="box">문서 작성 필요</a>
+            </div>
+        </details>
     </div>
     <main class="container">
         <header class="user-management-header">

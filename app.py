@@ -27,6 +27,9 @@ app.secret_key = config.MASTER_KEY or "Session_Key"
 def inject_footer_content():
     return {
         "footer_content": config.FOOTER_CONTENT,
+        "wiki_name": config.WIKI_NAME,
+        "wiki_page": config.MAIN_PAGE,
+        "wiki_color": config.LOGO_COLOR,
         "is_operator": is_admin_role(get_current_user_role()),
         "is_representative": is_representative(),
         "csrf_token": get_csrf_token()
@@ -502,11 +505,7 @@ def is_admin_role(role):
     return normalized == "admin"
 
 
-def is_representative():
-    username = flask.session.get('user')
-    if not username:
-        return False
-
+def get_representative_username():
     db = get_db()
     try:
         row = db.execute(
@@ -517,9 +516,14 @@ def is_representative():
             LIMIT 1
             """
         ).fetchone()
-        return row is not None and row['username'] == username
+        return row['username'] if row else None
     finally:
         db.close()
+
+
+def is_representative():
+    username = flask.session.get('user')
+    return bool(username and get_representative_username() == username)
 
 
 def get_csrf_token():
@@ -644,18 +648,21 @@ def enforce_access_blocks():
     if flask.request.endpoint == "static":
         return None
 
-    if is_admin_role(get_current_user_role()):
+    username = flask.session.get("user")
+    if username and is_representative():
         return None
 
     endpoint = flask.request.endpoint or ""
     method = flask.request.method
     candidates = []
-    username = flask.session.get("user")
     if username:
         candidates.extend(get_active_blocks("id", username))
 
     if endpoint in {"login", "register"}:
         form_username = flask.request.form.get("id", "").strip()
+        if endpoint == "login" and form_username:
+            if form_username == get_representative_username():
+                return None
         if form_username and form_username != username:
             candidates.extend(get_active_blocks("id", form_username))
 
@@ -718,10 +725,7 @@ def view(Document):
             title=Document, 
             mode="w", 
             detail=error_msg, 
-            letter=False, 
-            wiki_name=config.WIKI_NAME, 
-            wiki_page=config.MAIN_PAGE, 
-            wiki_color=config.LOGO_COLOR
+            letter=False
         )
 
     if raw_rev is not None and content is not None:
@@ -735,10 +739,7 @@ def view(Document):
             restore_csrf_token=flask.session.setdefault(
                 "restore_csrf_token",
                 secrets.token_urlsafe(32)
-            ),
-            wiki_name=config.WIKI_NAME,
-            wiki_page=config.MAIN_PAGE,
-            wiki_color=config.LOGO_COLOR
+            )
         )
 
     come_value = flask.request.args.get("from", "")
@@ -909,9 +910,6 @@ def view(Document):
         letter=length,
         version=version,
         come=come_value,
-        wiki_name=config.WIKI_NAME, 
-        wiki_page=config.MAIN_PAGE, 
-        wiki_color=config.LOGO_COLOR
     )
 
 @app.route("/api/protect/<path:Document>", methods=["GET", "POST"])
@@ -995,17 +993,14 @@ def editing(Document):
         "index.html",
         title=Document,
         mode="edit",
-        detail=existing,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        detail=existing
     )
 
 @app.route("/admin/<path:subject>")
 @admin_required
 def operator(subject):
     subject = prefix(subject)
-    return flask.render_template("admin.html", title=subject, mode="admin", detail="", wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
+    return flask.render_template("admin.html", title=subject, mode="admin", detail="")
 
 
 @app.route("/admin/users", methods=["GET"])
@@ -1032,10 +1027,7 @@ def manage_users():
         "users.html",
         title="사용자 권한 관리",
         users=users,
-        representative_id=representative_id,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        representative_id=representative_id
     )
 
 
@@ -1137,10 +1129,7 @@ def manage_blocks():
         "blocks.html",
         title="차단 관리",
         blocks=blocks,
-        error=None,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        error=None
     )
 
 
@@ -1161,6 +1150,11 @@ def create_block():
 
     if target_type not in allowed_target_types:
         error = "차단 대상 종류가 올바르지 않습니다."
+    elif (
+        target_type == "id"
+        and target == get_representative_username()
+    ):
+        error = "대표 운영자는 차단할 수 없습니다."
     elif not target:
         error = "차단할 ID 또는 IP를 입력하세요."
     elif action not in allowed_actions:
@@ -1196,10 +1190,7 @@ def create_block():
             "blocks.html",
             title="차단 관리",
             blocks=blocks,
-            error=error,
-            wiki_name=config.WIKI_NAME,
-            wiki_page=config.MAIN_PAGE,
-            wiki_color=config.LOGO_COLOR
+            error=error
         ), 400
 
     conn = sqlite3.connect(config.DB_PATH)
@@ -1267,10 +1258,7 @@ def history(Document):
         mode="history",
         history_data=rows,
         restored_revision=flask.request.args.get("restored", type=int),
-        restore_csrf_token=restore_csrf_token,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        restore_csrf_token=restore_csrf_token
     )
 
 
@@ -1361,10 +1349,7 @@ def compare(Document):
         mode="compare",
         comparison_html=comparison_html,
         from_version=from_rev,
-        to_version=to_rev,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        to_version=to_rev
     )
 
 
@@ -1375,10 +1360,7 @@ def backlink(Document):
         "index.html",
         title=Document,
         mode="backlink",
-        backlinks=get_backlinks(Document),
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        backlinks=get_backlinks(Document)
     )
 
 def discussion_topic_code(comment_id):
@@ -1552,10 +1534,7 @@ def discussion(Document, topic_code=None):
         discussions=rendered_rows,
         topic_code=topic_code,
         is_topic=topic_id is not None,
-        is_admin=is_admin,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        is_admin=is_admin
     )
 
 @app.route("/discussion/delete/<topic_code>/<int:comment_id>/<path:Document>", methods=["POST"])
@@ -1640,7 +1619,7 @@ def search():
             snippet += "..."
         results.append((title, snippet))
 
-    return flask.render_template("search.html", query=q, results=results, search_mode=search_mode, wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
+    return flask.render_template("search.html", query=q, results=results, search_mode=search_mode)
 
 @app.route("/RandomPage")
 def random_page():
@@ -1675,10 +1654,7 @@ def needed_documents():
         "index.html",
         title="문서 작성 필요",
         mode="needed_documents",
-        missing_documents=get_missing_documents(),
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        missing_documents=get_missing_documents()
     )
 
 @app.route("/Sign_Up", methods=["GET", "POST"])
@@ -1727,10 +1703,7 @@ def register():
     return flask.render_template(
         "accession.html",
         title="회원가입",
-        again=False,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        again=False
     )
 
 @app.route("/Revisit", methods=["GET", "POST"])
@@ -1761,7 +1734,7 @@ def login():
         else:
             return flask.abort(403)
 
-    return flask.render_template("accession.html", title="로그인", again=True, wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
+    return flask.render_template("accession.html", title="로그인", again=True)
 
 @app.route("/Logout")
 def logout():
@@ -1786,7 +1759,7 @@ def upload_image():
             </form>
         </div>
         """
-        return flask.render_template("index.html", title="이미지 업로드", mode="w", detail=upload_html, letter=False, wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
+        return flask.render_template("index.html", title="이미지 업로드", mode="w", detail=upload_html, letter=False)
 
     if 'file' not in flask.request.files:
         return flask.abort(400)
@@ -1841,7 +1814,7 @@ def upload_image():
             <a href="/" style="color: #007bff; text-decoration: none;">🏠 홈으로 이동</a>
         </div>
         """
-        return flask.render_template("index.html", title="업로드 완료", mode="w", detail=result_html, letter=False, wiki_name=config.WIKI_NAME, wiki_page=config.MAIN_PAGE, wiki_color=config.LOGO_COLOR)
+        return flask.render_template("index.html", title="업로드 완료", mode="w", detail=result_html, letter=False)
 
 @app.route("/images/<filename>")
 def serve_image(filename):
@@ -1873,10 +1846,7 @@ def delete_document(Document):
     return flask.render_template(
         "delete_confirm.html",
         title="문서 삭제 확인",
-        document_title=Document,
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        document_title=Document
     )
 
 @app.errorhandler(400)
@@ -1894,10 +1864,7 @@ def global_error_handler(e):
 
     return flask.render_template(
         "error.html",
-        title=f"{status_code} {error_name}",
-        wiki_name=config.WIKI_NAME,
-        wiki_page=config.MAIN_PAGE,
-        wiki_color=config.LOGO_COLOR
+        title=f"{status_code} {error_name}"
     ), status_code
 
 if __name__ == "__main__":
