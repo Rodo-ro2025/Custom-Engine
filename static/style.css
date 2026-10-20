@@ -297,12 +297,13 @@ textarea:focus {
 }
 
 .wiki-footnote-tooltip {
-    position: absolute;
+    position: fixed;
     z-index: 10;
-    left: 50%;
-    bottom: 100%;
+    left: 0;
+    top: 0;
     width: max-content;
     max-width: min(360px, 70vw);
+    box-sizing: border-box;
     padding: 8px 10px;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
@@ -313,15 +314,15 @@ textarea:focus {
     line-height: 1.4;
     opacity: 0;
     pointer-events: none;
-    transform: translate(-50%, 4px);
+    transform: translateY(4px);
     transition: opacity 0.15s ease, transform 0.15s ease;
     white-space: normal;
 }
 
-.wiki-footnote-reference.is-visible .wiki-footnote-tooltip {
+.wiki-footnote-tooltip.is-visible {
     opacity: 1;
     pointer-events: auto;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
 }
 
 .wiki-footnotes {
@@ -718,13 +719,19 @@ footer {
     text-decoration: underline;
 }
 
+.wiki_table-wrap {
+    max-width: 100%;
+    margin: 20px 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
 .wiki_table {
     width: 100%;
-    margin: 20px 0;
+    margin: 0;
     border-collapse: collapse;
     border: 1px solid #d0d7de;
     background-color: #ffffff;
-    overflow: visible;
     border-radius: 8px;
 }
 

@@ -277,8 +277,21 @@ def table(t):
 
                     html_rows.append(f'<tr{row_style_attr}>{"".join(row_html)}</tr>')
 
+                wrapper_styles = {}
+                if table_styles.get('float'):
+                    for prop in ('float', 'margin-left', 'margin-right'):
+                        if prop in table_styles:
+                            wrapper_styles[prop] = table_styles.pop(prop)
+
+                wrapper_style = _build_style(wrapper_styles)
                 table_style = _build_style(table_styles)
-                result.append(f'<table class="wiki_table"{f" style=\"{table_style}\"" if table_style else ""}>{"".join(html_rows)}</table>')
+                result.append(
+                    f'<div class="wiki_table-wrap"'
+                    f'{f" style=\"{wrapper_style}\"" if wrapper_style else ""}>'
+                    f'<table class="wiki_table"'
+                    f'{f" style=\"{table_style}\"" if table_style else ""}>'
+                    f'{"".join(html_rows)}</table></div>'
+                )
                 continue
 
         result.append(line)

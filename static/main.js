@@ -59,11 +59,27 @@ document.addEventListener("DOMContentLoaded", function() {
         const showTooltip = function() {
             window.clearTimeout(hideTimer);
             reference.classList.add("is-visible");
+            tooltip.classList.add("is-visible");
+
+            const referenceRect = reference.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const horizontalPadding = 8;
+            const left = Math.min(
+                Math.max(horizontalPadding, referenceRect.left + referenceRect.width / 2 - tooltipRect.width / 2),
+                window.innerWidth - tooltipRect.width - horizontalPadding
+            );
+            const top = referenceRect.top >= tooltipRect.height + horizontalPadding
+                ? referenceRect.top - tooltipRect.height - horizontalPadding
+                : referenceRect.bottom + horizontalPadding;
+
+            tooltip.style.left = `${left}px`;
+            tooltip.style.top = `${top}px`;
         };
 
         const hideTooltip = function() {
             hideTimer = window.setTimeout(function() {
                 reference.classList.remove("is-visible");
+                tooltip.classList.remove("is-visible");
             }, 100);
         };
 
@@ -77,6 +93,7 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
         tooltip.addEventListener("mouseleave", hideTooltip);
+        document.body.appendChild(tooltip);
     });
 
     if (editTextarea) {
