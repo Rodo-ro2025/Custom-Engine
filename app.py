@@ -307,7 +307,7 @@ def get_missing_documents():
 
     existing_titles = {title for title, _ in rows}
     missing_sources = {}
-    internal_link_pattern = re.compile(r'(?<!\\)\[\[([^\]|@]+)(?:\|[^\]]*)?\]\]')
+    internal_link_pattern = re.compile(r'(?<!\\)\[\[([^\]|@]+)(?:\|[^\]]*)?\]\](?!\\)')
 
     for source_title, content in rows:
         for match in internal_link_pattern.finditer(content or ""):
