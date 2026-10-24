@@ -243,10 +243,6 @@ def get_document_namespace(title):
 
 
 def get_backlinks(Document):
-    Document = prefix(Document)
-    if Document.startswith(":분류:") or Document.startswith(":파일:"):
-        Document = Document[1:]
-
     conn = sqlite3.connect(config.DB_PATH)
     try:
         rows = conn.execute("SELECT title, content FROM documents ORDER BY title ASC").fetchall()
@@ -258,7 +254,7 @@ def get_backlinks(Document):
     escaped_file_target = re.escape(file_target)
     backlink_patterns = {
         "link": re.compile(
-            rf'(?<!\\)\[\[{escaped_document}(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]'
+            rf'(?<!\\)\[\[(?!파일:)(?::)?{escaped_document}(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]'
         ),
         "file": re.compile(
             rf'(?<!\\)\[\[파일:{escaped_file_target}(?:\|[^\]]*)?\]\]'
