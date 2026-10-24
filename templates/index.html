@@ -90,48 +90,50 @@
                 <p role="status">r{{ restored_revision }}의 내용으로 새 리비전을 생성했습니다.</p>
             {% endif %}
             {% if history_data %}
-                <table class="wiki-history-table" border="2">
-                    <thead>
-                        <tr>
-                            <th>버전</th>
-                            <th>작성자</th>
-                            <th>수정 시간</th>
-                            <th>글자 수</th>
-                            <th>원문</th>
-                            {% if session.get('user') %}
-                                <th>작업</th>
-                            {% endif %}
-                        </tr>
-                    </thead>
-                    <tbody>
-                    {% for row in history_data %}
-                        <tr>
-                            <td>
-                                <a href="{{ url_for('view', Document=title, rev=row[0]) }}">r{{ row[0] }}</a>
-                                <a href="{{ url_for('view', Document=title, raw=row[0]) }}">RAW</a>
-                                {% if row[0] > 1 %}
-                                    <a href="{{ url_for('compare', Document=title) }}?from={{ row[0] - 1 }}&amp;to={{ row[0] }}">비교</a>
+                <div class="wiki_table-wrap">
+                    <table class="wiki-history-table" border="2">
+                        <thead>
+                            <tr>
+                                <th>버전</th>
+                                <th>작성자</th>
+                                <th>수정 시간</th>
+                                <th>글자 수</th>
+                                <th>원문</th>
+                                {% if session.get('user') %}
+                                    <th>작업</th>
                                 {% endif %}
-                            </td>
-                            <td>{{ row[1] }}</td>
-                            <td>{{ row[2] }}</td>
-                            <td>{{ row[3] }}</td>
-                            <td>
-                                <button type="button" class="wiki-version-copy" data-copy-target="history-revision-{{ row[0] }}">전체 복사</button>
-                                <textarea id="history-revision-{{ row[0] }}" class="wiki-history-source" readonly>{{ row[4] }}</textarea>
-                            </td>
-                            {% if session.get('user') %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in history_data %}
+                            <tr>
                                 <td>
-                                    <form method="post" action="{{ url_for('restore_revision', rev=row[0], Document=title) }}" onsubmit="return confirm('r{{ row[0] }}의 내용으로 문서를 되돌리시겠습니까? 현재 내용은 새 리비전으로 보존됩니다.');">
-                                        <input type="hidden" name="csrf_token" value="{{ restore_csrf_token }}">
-                                        <button type="submit">해당 리비전으로 문서 되돌리기</button>
-                                    </form>
+                                    <a href="{{ url_for('view', Document=title, rev=row[0]) }}">r{{ row[0] }}</a>
+                                    <a href="{{ url_for('view', Document=title, raw=row[0]) }}">RAW</a>
+                                    {% if row[0] > 1 %}
+                                        <a href="{{ url_for('compare', Document=title) }}?from={{ row[0] - 1 }}&amp;to={{ row[0] }}">비교</a>
+                                    {% endif %}
                                 </td>
-                            {% endif %}
-                        </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
+                                <td>{{ row[1] }}</td>
+                                <td>{{ row[2] }}</td>
+                                <td>{{ row[3] }}</td>
+                                <td>
+                                    <button type="button" class="wiki-version-copy" data-copy-target="history-revision-{{ row[0] }}">전체 복사</button>
+                                    <textarea id="history-revision-{{ row[0] }}" class="wiki-history-source" readonly>{{ row[4] }}</textarea>
+                                </td>
+                                {% if session.get('user') %}
+                                    <td>
+                                        <form method="post" action="{{ url_for('restore_revision', rev=row[0], Document=title) }}" onsubmit="return confirm('r{{ row[0] }}의 내용으로 문서를 되돌리시겠습니까? 현재 내용은 새 리비전으로 보존됩니다.');">
+                                            <input type="hidden" name="csrf_token" value="{{ restore_csrf_token }}">
+                                            <button type="submit">해당 리비전으로 문서 되돌리기</button>
+                                        </form>
+                                    </td>
+                                {% endif %}
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             {% else %}
                 <p>역사가 존재하지 않습니다.</p>
             {% endif %}

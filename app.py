@@ -153,7 +153,7 @@ def get_document(Document):
 
     return row[0] if row else None
 
-def save_document(Document, content, author="GUEST"):
+def save_document(Document, content, author):
     conn = sqlite3.connect(config.DB_PATH)
     cursor = conn.cursor()
 
@@ -491,7 +491,7 @@ init_user_db()
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user' not in flask.session:
+        if not flask.session.get('user'):
             return flask.redirect(flask.url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
@@ -980,7 +980,7 @@ def editing(Document):
         save_document(
             Document,
             user_text,
-            author=current_user
+            author=get_client_ip()
         )
 
         return flask.redirect(
@@ -1302,7 +1302,7 @@ def restore_revision(rev, Document):
     if revision is None:
         flask.abort(404)
 
-    save_document(Document, revision["content"], author=current_user)
+    save_document(Document, revision["content"], author=get_client_ip())
     return flask.redirect(
         flask.url_for("history", Document=Document, restored=rev)
     )
@@ -1389,7 +1389,7 @@ def discussion(Document, topic_code=None):
     if flask.request.method == "POST":
         content = flask.request.form.get("content")
         parent_id = flask.request.form.get("parent_id")
-        author = flask.session.get("user", "GUEST")
+        author = flask.session["user"]
 
         conn = sqlite3.connect(config.DB_PATH)
         cursor = conn.cursor()
@@ -1794,7 +1794,7 @@ def upload_image():
         try:
             if config.AUTO_CREATE_DOCUMENTS.get("image", True):
                 wiki_content = build_auto_create_document_content("image", filename=filename)
-                save_document(wiki_title, wiki_content, author=flask.session.get("user", "GUEST"))
+                save_document(wiki_title, wiki_content, author=flask.session["user"])
 
         except Exception as e:
             print(f"파일 문서 자동 생성 중 DB 에러 발생: {e}")
