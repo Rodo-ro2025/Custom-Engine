@@ -368,6 +368,8 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 "width": "640",
                 "height": "360"
             }
+            width_provided = False
+            height_provided = False
 
             for item in params_str.split(","):
                 item = item.strip()
@@ -379,6 +381,21 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
 
                     if key in params:
                         params[key] = value
+                        if key == "width":
+                            width_provided = True
+                        elif key == "height":
+                            height_provided = True
+
+            if width_provided and not height_provided:
+                if re.fullmatch(r"\d+", params["width"]):
+                    width = int(params["width"])
+                    if width > 0:
+                        params["height"] = str(max(1, (width * 360 + 320) // 640))
+            elif height_provided and not width_provided:
+                if re.fullmatch(r"\d+", params["height"]):
+                    height = int(params["height"])
+                    if height > 0:
+                        params["width"] = str(max(1, (height * 640 + 180) // 360))
 
             platform = params["platform"].lower()
             video_id = params["src"]
