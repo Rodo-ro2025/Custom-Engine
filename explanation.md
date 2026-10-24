@@ -93,6 +93,7 @@
   | 이름 | 설명 |
   | 사과 | 과일 |
   ```
+- 표 셀 안에서도 `* 항목`, `1. 항목`, `a. 항목` 형식의 목록과 `> 인용문`을 사용할 수 있습니다.
 - 셀 앞에 `<^2>`를 붙이면 아래 방향으로 2칸, `<-2>`를 붙이면 오른쪽으로 2칸 병합합니다. `<(`, `<:`, `<)`는 각각 오른쪽·가운데·왼쪽 정렬을 지정합니다.
 - 셀 앞의 `<bgcolor=색상>`, `<color=색상>`, `<width=값>`, `<textalign=정렬>`로 셀 스타일을 지정할 수 있습니다. `rowbgcolor`, `rowcolor`, `rowtextalign`은 행 전체에, `colbgcolor`, `colcolor`, `coltextalign`은 해당 열에 적용합니다.
 - 표 전체에는 `tablealign`, `tablebgcolor`, `tablecolor`, `tablebordercolor`, `tabletextalign`, `tablewidth`를 지정할 수 있습니다. 스타일 태그는 `<tablewidth=80%>`처럼 셀에 함께 적습니다. 너비의 단위 없는 숫자는 픽셀로 취급됩니다.

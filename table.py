@@ -26,6 +26,39 @@ STYLE_TAGS = {
 }
 
 
+def _is_table_row(line):
+    stripped = line.strip()
+    return stripped.startswith('|') and stripped.endswith('|')
+
+
+def _split_table_cells(line):
+    cells = []
+    start = 0
+    link_depth = 0
+    index = 0
+
+    while index < len(line):
+        if line.startswith('[[', index):
+            link_depth += 1
+            index += 2
+        elif line.startswith(']]', index) and link_depth:
+            link_depth -= 1
+            index += 2
+        elif line[index] == '|' and link_depth == 0:
+            cells.append(line[start:index].strip())
+            start = index + 1
+            index += 1
+        else:
+            index += 1
+
+    cells.append(line[start:].strip())
+    if cells and cells[0] == '':
+        cells = cells[1:]
+    if cells and cells[-1] == '':
+        cells = cells[:-1]
+    return cells
+
+
 def _normalize_css_value(prop, value):
     value = str(value).strip()
     if not value:
@@ -160,12 +193,11 @@ def table(t):
         line = lines[index]
         stripped = line.strip()
 
-        if stripped and '|' in stripped:
+        if _is_table_row(line):
             table_lines = []
             while index < len(lines):
                 current_line = lines[index]
-                current_stripped = current_line.strip()
-                if not current_stripped or '|' not in current_stripped:
+                if not _is_table_row(current_line):
                     break
                 table_lines.append(current_line)
                 index += 1
@@ -177,11 +209,7 @@ def table(t):
             table_styles['border-collapse'] = 'collapse'
 
             for raw_line in table_lines:
-                cells = [cell.strip() for cell in raw_line.split('|')]
-                if cells and cells[0] == '':
-                    cells = cells[1:]
-                if cells and cells[-1] == '':
-                    cells = cells[:-1]
+                cells = _split_table_cells(raw_line)
 
                 if not cells:
                     continue

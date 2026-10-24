@@ -16,7 +16,7 @@ from pygments.util import ClassNotFound
 
 # --- Personal Module ---
 import config
-from table import table
+from table import _split_table_cells, table
 
 
 _UNSAFE_SOURCE_ELEMENT_PATTERN = re.compile(
@@ -24,6 +24,13 @@ _UNSAFE_SOURCE_ELEMENT_PATTERN = re.compile(
     r'</\s*\1\s*>'
     r'|<\s*(?:embed|base|meta|link)\b[^>]*?/?>',
     re.IGNORECASE | re.DOTALL
+)
+_TABLE_CELL_METADATA_PATTERN = re.compile(
+    r'<(?:tablealign|tablebgcolor|tablecolor|tablebordercolor|'
+    r'tabletextalign|tablewidth|bgcolor|color|width|rowbgcolor|'
+    r'rowcolor|rowtextalign|colbgcolor|colcolor|coltextalign|'
+    r'textalign)(?:=[^<>"\']*)?>|<\^\d+>|<-\d+>|<[():]>',
+    re.IGNORECASE
 )
 
 
@@ -93,6 +100,24 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 source_syntax
             )
         return value
+
+    def transform_table_cells(line, transform):
+        stripped = line.strip()
+        if not (stripped.startswith('|') and stripped.endswith('|')):
+            return line
+        cells = _split_table_cells(line)
+        if not cells:
+            return line
+
+        def transform_cell(cell):
+            metadata = []
+            content = _TABLE_CELL_METADATA_PATTERN.sub(
+                lambda match: metadata.append(match.group(0)) or '',
+                cell
+            )
+            return ''.join(metadata) + transform(content)
+
+        return '|' + '|'.join(transform_cell(cell) for cell in cells) + '|'
 
     def link(t):
         def normalize_internal_link_target(target):
@@ -1476,10 +1501,19 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 return 'ol', re.sub(r'^i\.\s*', '', stripped, flags=re.I), 'i'
             return None
 
+        lines = [
+            transform_table_cells(
+                line,
+                lambda cell: nested_list(cell)
+                if parse_marker(cell) else cell
+            )
+            for line in lines
+        ]
+
         def parse_block(start_idx, indent):
             items = []
             i = start_idx
-            block_type = None
+            block_type = None  
             block_kind = None
 
             while i < len(lines):
@@ -1506,7 +1540,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                     break
 
                 i += 1
-                child_html = ''
+                item_parts = [('line', content)]
 
                 while i < len(lines):
                     next_line = lines[i]
@@ -1518,10 +1552,17 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                     if next_indent <= indent:
                         break
 
-                    child_html, i = parse_block(i, next_indent)
-                    break
+                    if parse_marker(next_line):
+                        nested_html, next_index = parse_block(i, next_indent)
+                        if next_index == i:
+                            break
+                        item_parts.append(('block', nested_html))
+                        i = next_index
+                    else:
+                        item_parts.append(('line', next_line.strip()))
+                        i += 1
 
-                items.append((content, child_html))
+                items.append(item_parts)
 
             if not items:
                 return '', start_idx
@@ -1534,11 +1575,25 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 attrs = ' type="i"' if block_kind == 'i' else ' type="a"' if block_kind == 'a' else ''
 
             html_parts = [f'<{tag}{attrs}>']
-            for content, child_html in items:
-                html_parts.append(f'<li>{content}')
-                if child_html:
-                    html_parts.append(child_html)
-                html_parts.append('</li>')
+            for item_parts in items:
+                rendered_content = ''
+                previous_is_block = False
+                for part_type, part in item_parts:
+                    line = blockquote(part) if part_type == 'line' else part
+                    is_block = bool(re.match(
+                        r'^\s*<(?:blockquote|hr|ul|ol|div)\b',
+                        line,
+                        re.IGNORECASE
+                    ))
+                    if rendered_content and not (previous_is_block or is_block):
+                        rendered_content += '<br>'
+                    rendered_content += line
+                    previous_is_block = is_block or bool(re.search(
+                        r'</(?:blockquote|ul|ol|div)>\s*$',
+                        line,
+                        re.IGNORECASE
+                    ))
+                html_parts.append(f'<li>{rendered_content}</li>')
             html_parts.append(f'</{tag}>')
             return ''.join(html_parts), i
 
@@ -1602,22 +1657,40 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
         return heading_pattern.sub(index, t)
 
     def blockquote(t):
-        pattern = r'(?:(?:^>|^&gt;)[ \t]*.*\n?)+'
+        pattern = r'(?:(?:^[ \t]*(?:>|&gt;))[ \t]*.*\n?)+'
 
         def _wrap(m):
-            inner = re.sub(r'^(?:>|&gt;)[ \t]*', '', m.group(0), flags=re.MULTILINE)
+            inner = re.sub(
+                r'^[ \t]*(?:>|&gt;)[ \t]?',
+                '',
+                m.group(0),
+                flags=re.MULTILINE
+            )
             lines = inner.splitlines()
             processed = []
 
             for line in lines:
                 stripped = line.strip()
                 if re.match(r'^-{4,10}$', stripped):
-                    processed.append('<hr>')
+                    indentation = line[:len(line) - len(line.lstrip())]
+                    processed.append(f'{indentation}<hr>')
                 else:
                     processed.append(line)
 
-            return f'<blockquote>{"\n".join(processed)}</blockquote>'
-        return re.sub(pattern, _wrap, t, flags=re.MULTILINE)
+            nested_content = blockquote("\n".join(processed))
+            return f'<blockquote>{nested_list(nested_content)}</blockquote>'
+        lines = t.splitlines()
+        for index, line in enumerate(lines):
+            lines[index] = transform_table_cells(
+                line,
+                lambda cell: re.sub(
+                    pattern,
+                    _wrap,
+                    cell,
+                    flags=re.MULTILINE
+                )
+            )
+        return re.sub(pattern, _wrap, '\n'.join(lines), flags=re.MULTILINE)
 
     def line_breaks(t):
         style_pattern = re.compile(
@@ -1816,7 +1889,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                     )
 
                 rendered = re.sub(
-                    r'(?m)^[^\r\n]*\|[^\r\n]*',
+                    r'(?m)^[ \t]*\|[^\r\n]*\|[ \t]*(?=\r?$)',
                     preserve_table_syntax,
                     rendered
                 )
@@ -1858,13 +1931,13 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             else:
                 rendered = re.sub(r'~~(.+?)~~', '', rendered)
 
+            rendered = restore_protected_table_syntax(rendered)
             rendered = toc(rendered)
             rendered = blockquote(rendered)
             rendered = brace(rendered)
             rendered = macro(rendered)
             rendered = link(rendered)
             rendered = nested_list(rendered)
-            rendered = restore_protected_table_syntax(rendered)
             rendered = table(rendered)
 
             for index, folding_html in enumerate(folding_blocks):
