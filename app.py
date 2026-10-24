@@ -243,6 +243,10 @@ def get_document_namespace(title):
 
 
 def get_backlinks(Document):
+    Document = prefix(Document)
+    if Document.startswith(":분류:") or Document.startswith(":파일:"):
+        Document = Document[1:]
+
     conn = sqlite3.connect(config.DB_PATH)
     try:
         rows = conn.execute("SELECT title, content FROM documents ORDER BY title ASC").fetchall()
