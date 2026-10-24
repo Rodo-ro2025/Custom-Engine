@@ -38,8 +38,18 @@ def _sanitize_source_html(value):
     if not isinstance(value, str):
         return ''
 
-    value = re.sub(r'<.*?>.*?</.*?>', '', value, flags=re.DOTALL)
-    return re.sub(r'<.*?>', '', value, flags=re.DOTALL)
+    value = re.sub(
+        r'<\s*([A-Za-z][A-Za-z0-9:-]*)\b[^>]*>.*?'
+        r'</\s*\1\s*>',
+        '',
+        value,
+        flags=re.DOTALL | re.IGNORECASE
+    )
+    return re.sub(
+        r'<\s*/?[A-Za-z][A-Za-z0-9:-]*\b[^>]*>',
+        '',
+        value
+    )
 
 
 def _strip_unsafe_source_elements(value):
