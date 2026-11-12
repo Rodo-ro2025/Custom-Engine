@@ -1947,7 +1947,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
             rendered = extract_folding_blocks(rendered)
 
             rendered = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', rendered)
-            rendered = re.sub(r'\*(.+?)\*', r'<em>\1</em>', rendered)
+            rendered = re.sub(r'(?<!^)\*(.+?)\*', r'<em>\1</em>', rendered, flags=re.MULTILINE)
             rendered = re.sub(r'__(.+?)__', r'<ins>\1</ins>', rendered)
             rendered = re.sub(r'\^\^(.+?)\^\^', r'<sup>\1</sup>', rendered)
             rendered = re.sub(r',,(.+?),,', r'<sub>\1</sub>', rendered)
