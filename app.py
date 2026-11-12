@@ -1666,7 +1666,7 @@ def register():
         if not username or not password:
             return flask.abort(400)
 
-        if not re.fullmatch(r"[A-Za-z0-9]+", username):
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", username):
             return flask.abort(400)
 
         conn = sqlite3.connect(config.DB_USER_PATH)
@@ -1696,7 +1696,7 @@ def register():
 
         if config.AUTO_CREATE_DOCUMENTS.get("user", True):
             initial_content = build_auto_create_document_content("user", username=username)
-            save_document(user_document_title, initial_content, author="SYSTEM")
+            save_document(user_document_title, initial_content, author=username)
 
         return flask.redirect(flask.url_for("login"))
 
