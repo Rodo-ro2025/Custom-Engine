@@ -980,7 +980,7 @@ def editing(Document):
         save_document(
             Document,
             user_text,
-            author=get_client_ip()
+            author=current_user
         )
 
         return flask.redirect(
@@ -1302,7 +1302,7 @@ def restore_revision(rev, Document):
     if revision is None:
         flask.abort(404)
 
-    save_document(Document, revision["content"], author=get_client_ip())
+    save_document(Document, revision["content"], author=current_user)
     return flask.redirect(
         flask.url_for("history", Document=Document, restored=rev)
     )
@@ -1827,8 +1827,28 @@ def serve_image(filename):
 def delete_document(Document):
     Document = prefix(Document)
     current_user = flask.session.get("user")
+    is_admin = is_admin_role(get_current_user_role())
+
+    if Document.startswith("사용자:"):
+        owner_name = Document[len("사용자:"):].split("/", 1)[0]
+        if current_user != owner_name and not is_admin:
+            flask.abort(403)
+
+    doc_conn = get_document_db()
+    try:
+        document = doc_conn.execute(
+            "SELECT is_protected FROM documents WHERE title = ?",
+            (Document,)
+        ).fetchone()
+        if document and document["is_protected"] == 1 and not is_admin:
+            flask.abort(403)
+    finally:
+        doc_conn.close()
 
     if flask.request.method == "POST":
+        if not validate_csrf_token():
+            flask.abort(400)
+
         doc_conn = sqlite3.connect(config.DB_PATH)
         doc_cursor = doc_conn.cursor()
         

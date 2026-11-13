@@ -46,10 +46,11 @@
         <div class="reduce">
             <b>⚠️ 문서 삭제 주의 경보</b><br>
             정말로 <strong>"{{ document_title }}"</strong> 문서를 완전히 삭제하시겠습니까?<br>
-            <b class="wiki-link erroneous">삭제된 문서는 되돌릴 수 없으며, 모든 편집 역사가 영구히 소멸합니다.</b>
+            <b class="wiki-link erroneous">문서 본문은 삭제되지만 편집 역사는 남으며, 역사에서 복원할 수 있습니다.</b>
         </div>
         
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="wiki-btn-delete">삭제 집행</button>
             <a href="/w/{{ document_title }}" class="Shortcut">취소하고 돌아가기</a>
         </form>
