@@ -838,7 +838,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                     token = token[1:-1]
                 return token if valid_parameter_name(token) else None
 
-            def split_expression_parts(expression, separator):
+            def find_expression_parts(expression, separator):
                 parts = []
                 quote = None
                 parenthesis_depth = 0
@@ -977,11 +977,11 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 function_call = parse_function_call(token)
                 if function_call is not None:
                     source_expr, method, arguments_expr = function_call
-                    arguments = split_expression_parts(arguments_expr, ',')
+                    arguments = find_expression_parts(arguments_expr, ',')
                     source = resolve_token(source_expr)
                     source = '' if source is None else str(source)
 
-                    if method == 'split' and len(arguments) == 2:
+                    if method == 'find' and len(arguments) == 2:
                         separator = resolve_token(arguments[0])
                         count = resolve_token(arguments[1])
                         if separator is not None:
@@ -1017,7 +1017,7 @@ def rendering(text, function=[], db_check_func=None, current_title=None, include
                 slice_expr = parse_slice(token)
                 if slice_expr is not None:
                     source_expr, indices_expr = slice_expr
-                    slice_parts = split_expression_parts(indices_expr, ':')
+                    slice_parts = find_expression_parts(indices_expr, ':')
                     if len(slice_parts) in {2, 3}:
                         indices = []
                         valid_indices = True
