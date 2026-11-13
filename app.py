@@ -857,7 +857,7 @@ def view(Document):
                     for item_title in items:
                         encoded_url = urllib.parse.quote(item_title)
                         item_html.append(
-                            f'<li><a href="/w/{encoded_url}">'
+                            f'<li><a class="wiki-link" href="/w/{encoded_url}">'
                             f'{html.escape(item_title, quote=False)}</a></li>'
                         )
                     panel_blocks.append(
