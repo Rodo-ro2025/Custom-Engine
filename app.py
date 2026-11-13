@@ -1608,6 +1608,36 @@ def search():
     if not q:
         return flask.redirect(flask.url_for("index"))
 
+    title_query = prefix(q).strip()
+    if title_query:
+        conn = sqlite3.connect(config.DB_PATH)
+        try:
+            exact_match = conn.execute(
+                "SELECT title FROM documents WHERE title = ? COLLATE BINARY LIMIT 1",
+                (title_query,)
+            ).fetchone()
+            if exact_match:
+                matched_title = exact_match[0]
+            else:
+                folded_query = title_query.casefold()
+                title_rows = conn.execute(
+                    "SELECT title FROM documents ORDER BY id DESC"
+                ).fetchall()
+                matched_title = next(
+                    (
+                        title for (title,) in title_rows
+                        if title.casefold() == folded_query
+                    ),
+                    None
+                )
+        finally:
+            conn.close()
+
+        if matched_title:
+            return flask.redirect(
+                flask.url_for("view", Document=matched_title)
+            )
+
     results = []
     for title, content in search_documents(q, search_mode):
         content = content or ""
