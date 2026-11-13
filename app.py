@@ -187,12 +187,18 @@ def build_auto_create_document_content(kind, **kwargs):
         return template
 
 
-def get_visible_document_text(title, content):
+def get_visible_document_text(
+    title,
+    content,
+    db_check_func=Document_Check,
+    db_read_func=None
+):
     rendered_content = rendering.rendering(
         content or "",
         function=config.RENDERING_LIST,
-        db_check_func=Document_Check,
-        current_title=title
+        db_check_func=db_check_func,
+        current_title=title,
+        db_read_func=db_read_func
     )
     rendered_content = re.sub(
         r"<(script|style)\b[^>]*>.*?</\1\s*>",
@@ -213,6 +219,21 @@ def search_documents(query, search_mode="all"):
         conn.close()
 
     query_pattern = re.compile(re.escape(query), re.IGNORECASE)
+    if search_mode == "raw":
+        return [
+            (title, raw_content or "")
+            for title, raw_content in rows
+            if query_pattern.search(raw_content or "")
+        ]
+
+    documents = dict(rows)
+
+    def document_exists(title):
+        return title in documents
+
+    def read_document(title):
+        return documents.get(title)
+
     results = []
     for title, raw_content in rows:
         raw_content = raw_content or ""
@@ -220,15 +241,17 @@ def search_documents(query, search_mode="all"):
 
         if search_mode == "title":
             if title_matches:
-                results.append((title, get_visible_document_text(title, raw_content)))
+                results.append((
+                    title,
+                    get_visible_document_text(
+                        title, raw_content, document_exists, read_document
+                    )
+                ))
             continue
 
-        if search_mode == "raw":
-            if query_pattern.search(raw_content):
-                results.append((title, raw_content))
-            continue
-
-        visible_content = get_visible_document_text(title, raw_content)
+        visible_content = get_visible_document_text(
+            title, raw_content, document_exists, read_document
+        )
         content_matches = query_pattern.search(visible_content) is not None
         if content_matches or (search_mode == "all" and title_matches):
             results.append((title, visible_content))
